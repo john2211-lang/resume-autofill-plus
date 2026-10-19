@@ -195,6 +195,14 @@
   /* 只认「控件前面的标题」：h1-h6 / legend / class 含 title、head，
      或短文本且以板块词开头。取不到就返回空，宁可没有上下文也不要串行。 */
   function sectionOf(el) {
+    if (isZhaopin()) {
+      const module=el.closest('.apply-module__body,.apply-module');
+      const heading=module && module.querySelector('h1,h2,h3,h4,h5,h6');
+      if (heading && /^(家庭|家属|亲属)/.test(norm(txt(heading)))) return '家庭情况';
+      const form=el.closest('form.el-form');
+      const labels=form ? [...form.querySelectorAll('.el-form-item__label')].map(n=>norm(txt(n))) : [];
+      if (!heading && labels.includes('姓名') && labels.includes('与本人关系') && labels.some(t=>/^(工作单位|职务|职位)$/.test(t))) return '家庭情况';
+    }
     let node = el.parentElement;
     for (let i = 0; i < 10 && node && node !== document.body && node !== document.documentElement; i++, node = node.parentElement) {
       if (node.tagName === 'FIELDSET') {
@@ -510,6 +518,7 @@
     // 页面上经历块比简历多时，多出来的块留空，别回绕去填第 1 条
     if (isZhaopin() && idx >= list.length) return '';
     const rec = list[idx] || {};
+    if (type === 'family') return rec[field] == null ? '' : String(rec[field]);
     if (type === 'edu') {
       const find = pattern => {const key=Object.keys(rec).find(k=>pattern.test(String(k).replace(/\s/g,'')) && rec[k]);return key ? rec[key] : '';};
       const counselor = rec.counselorName || rec.counsellorName || rec.counselor || rec.counsellor || find(/辅导员(姓名|名字)?$/);
@@ -2037,6 +2046,12 @@
         const label = norm(parts[0]);
         if (fields[label]) m = {type:'edu',field:fields[label],part:parts[0]};
       }
+      if (isZhaopin() && /家庭|家属|亲属/.test(section)) {
+        const fields={'姓名':'name','成员姓名':'name','家庭成员姓名':'name','与本人关系':'relation','关系':'relation','称谓':'relation','工作单位':'company','单位名称':'company','所在单位':'company','职务':'title','职位':'title','联系电话':'phone','手机号码':'phone','手机号':'phone','出生日期':'birth','政治面貌':'politics','现居住地':'location'};
+        const label=norm(parts[0]);
+        if (fields[label]) m={type:'family',field:fields[label],part:parts[0]};
+        else m=null; // Do not fall back to the applicant or internship inside a family form.
+      }
       if (!m) {
         dropped.push('[没匹配] ' + parts.join(' / ') + ' | ' + (el.tagName || '') + (el.readOnly ? ' readonly' : ''));
         continue;
@@ -2232,7 +2247,12 @@
           const saved = module ? [...module.querySelectorAll('form.el-form')].filter(f => f !== form && !f.querySelector('input,textarea,select')) : [];
           const savedTexts = saved.map(f => norm(txt(f)));
           const used = assigned.get(type) || new Set();
-          if (idx < 0) idx = records.findIndex((r,i) => !used.has(i) && !savedTexts.some(t => norm(r[anchorField]) && t.includes(norm(r[anchorField]))));
+          if (idx < 0) idx = records.findIndex((r,i) => !used.has(i) && !saved.some((f,j)=>{
+            if (type!=='family') return norm(r[anchorField]) && savedTexts[j].includes(norm(r[anchorField]));
+            const cells=[...f.querySelectorAll('.el-form-item')];
+            const textFor=label=>{const cell=cells.find(c=>label.test(norm(txt(c.querySelector('.el-form-item__label')))));return cell ? norm(txt(cell.querySelector('.el-form-item__content'))) : '';};
+            return textFor(/^(姓名|成员姓名|家庭成员姓名)$/)===norm(r.name) && textFor(/^(与本人关系|关系|称谓)$/)===norm(r.relation);
+          }));
           if (idx < 0) idx = records.length; // all records exist: leave this new form empty
           used.add(idx); assigned.set(type,used);
           own.filter(e => e.type === type).forEach(e => {e.idx=idx;});
