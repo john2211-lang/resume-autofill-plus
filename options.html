@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>简历资料库 · 网申速填</title>
+<link rel="stylesheet" href="options.css" />
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <div class="logo">速</div>
+    <div>
+      <div class="t">简历资料库</div>
+      <div class="s">所有内容只保存在这台电脑的浏览器里（chrome.storage.local），不会上传</div>
+    </div>
+  </div>
+  <div class="actions">
+    <span id="status" class="status">已就绪</span>
+    <button class="btn ghost" id="importExcelBtn">导入 Excel</button>
+    <button class="btn ghost" id="importBtn">导入 JSON</button>
+    <button class="btn ghost" id="exportBtn">导出 JSON</button>
+    <button class="btn" id="saveBtn">保存</button>
+    <input type="file" id="file" accept=".json,.xlsx,.xls,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden />
+  </div>
+</header>
+
+<div class="layout">
+  <nav class="side" id="nav"></nav>
+  <main class="main" id="form"></main>
+</div>
+
+<script src="data/seed-profile.js"></script>
+
+<script src="vendor/xlsx.full.min.js"></script>
+<script src="import-xlsx.js"></script>
+<script src="options.js"></script>
+</body>
+</html>

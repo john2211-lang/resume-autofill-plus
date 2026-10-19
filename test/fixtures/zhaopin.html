@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>智联招聘风格：弹窗表单 + 自研下拉 + 学校联想 + 可输入日期</title>
+<style>
+  body{font:14px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:#f5f6f7;margin:0;padding:24px;color:#333}
+  .zp-mask{position:fixed;inset:0;background:rgba(0,0,0,.45)}
+  .zp-dialog{position:relative;z-index:2;width:760px;margin:0 auto;background:#fff;border-radius:4px;padding:22px 26px 26px;box-shadow:0 8px 30px rgba(0,0,0,.15)}
+  .zp-dialog__title{font-size:20px;font-weight:600;color:#222}
+  .zp-dialog__title .must{display:inline-block;margin-left:6px;background:#ff5b5b;color:#fff;font-size:12px;line-height:18px;padding:0 5px;border-radius:2px;vertical-align:3px;font-weight:400}
+  .zp-tip{color:#999;font-size:13px;margin:6px 0 22px}
+  .zp-grid{display:flex;flex-wrap:wrap;gap:18px 40px}
+  .form-item{width:calc(50% - 20px);margin-bottom:8px}
+  .lb{color:#666;font-size:13px;margin-bottom:6px}
+  .lb i{color:#ff5b5b;font-style:normal;margin-right:3px}
+  .zp-input{position:relative;display:flex;align-items:center;height:38px;border:1px solid #d9d9d9;border-radius:3px;background:#fff;padding:0 10px}
+  .zp-input.is-focus{border-color:#3b7cff}
+  .zp-input__inner{border:0;outline:none;width:100%;font:inherit;color:#333;background:transparent}
+  .zp-input__inner::placeholder{color:#bbb}
+  .zp-err{color:#ff5b5b;font-size:12px;margin-top:4px}
+  .zp-select{position:relative;cursor:pointer}
+  .zp-select .zp-input{padding-right:28px}
+  .zp-select__text{flex:1;color:#bbb;font-size:14px}
+  .zp-select__text.has{color:#333}
+  .zp-select__arrow{position:absolute;right:10px;top:11px;color:#bbb;font-size:12px;transition:transform .15s}
+  .zp-select.open .zp-select__arrow{transform:rotate(180deg)}
+  .zp-select__input{position:absolute;opacity:0;width:1px;height:1px;border:0;padding:0}
+  .zp-dropdown{position:absolute;z-index:99;min-width:220px;max-height:240px;overflow:auto;background:#fff;border:1px solid #ececec;border-radius:3px;box-shadow:0 4px 14px rgba(0,0,0,.1);padding:4px 0}
+  .zp-dropdown li{list-style:none;padding:8px 14px;cursor:pointer;font-size:14px;color:#444}
+  .zp-dropdown li:hover,.zp-dropdown li.on{background:#f2f6ff;color:#3b7cff}
+  .zp-suggest{position:absolute;z-index:99;min-width:220px;background:#fff;border:1px solid #ececec;border-radius:3px;box-shadow:0 4px 14px rgba(0,0,0,.1);padding:4px 0;margin:0}
+  .zp-suggest li{list-style:none;padding:8px 14px;cursor:pointer;font-size:14px;color:#444}
+  .zp-suggest li:hover,.zp-suggest li.on{background:#f2f6ff;color:#3b7cff}
+  .zp-foot{display:flex;gap:16px;margin-top:26px}
+  .zp-btn{flex:0 0 210px;height:40px;border:1px solid #3b7cff;background:#fff;color:#3b7cff;border-radius:3px;font-size:15px;cursor:pointer}
+  .zp-btn.primary{background:#3b7cff;color:#fff}
+</style>
+</head>
+<body>
+<div class="zp-mask"></div>
+<div class="zp-dialog">
+  <div class="zp-dialog__title">学习经历<span class="must">必填</span></div>
+  <div class="zp-tip">从高中填起至最高学历</div>
+
+  <div class="zp-grid">
+    <!-- 学校名称：带联想搜索，不点候选会被清空并报「请填写学校全称」 -->
+    <div class="form-item">
+      <div class="lb"><i>*</i>学校名称</div>
+      <div class="zp-ctl">
+        <div class="zp-input"><input class="zp-input__inner" type="text" placeholder="请填写学校全称" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" data-k="school" /></div>
+        <div class="zp-err" hidden>请填写学校全称</div>
+      </div>
+    </div>
+
+    <!-- 入学时间：可以直接敲字，blur 时校验格式 -->
+    <div class="form-item">
+      <div class="lb"><i>*</i>入学时间</div>
+      <div class="zp-ctl">
+        <div class="zp-input zp-date"><input class="zp-input__inner" type="text" placeholder="请选择日期" data-k="start" /></div>
+      </div>
+    </div>
+
+    <div class="form-item">
+      <div class="lb"><i>*</i>毕业时间</div>
+      <div class="zp-ctl">
+        <div class="zp-input zp-date"><input class="zp-input__inner" type="text" placeholder="请选择日期" data-k="end" /></div>
+      </div>
+    </div>
+
+    <!-- 学制时间：名字里带「时间」，其实是时长下拉 -->
+    <div class="form-item">
+      <div class="lb"><i>*</i>学制时间</div>
+      <div class="zp-ctl">
+        <div class="zp-select" data-k="duration" data-options="1年,2年,3年,4年,5年,6年">
+          <div class="zp-input"><span class="zp-select__text">请选择学制时间</span><input class="zp-select__input" readonly /></div>
+          <span class="zp-select__arrow">⌄</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-item">
+      <div class="lb"><i>*</i>受教育类型</div>
+      <div class="zp-ctl">
+        <div class="zp-select" data-k="studyForm" data-options="普通全日制,非全日制,自考,成人教育,网络教育,其他">
+          <div class="zp-input"><span class="zp-select__text">请选择您的所受教育类型</span><input class="zp-select__input" readonly /></div>
+          <span class="zp-select__arrow">⌄</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-item">
+      <div class="lb"><i>*</i>学位</div>
+      <div class="zp-ctl">
+        <div class="zp-select" data-k="degree" data-options="无学位,学士,硕士,博士">
+          <div class="zp-input"><span class="zp-select__text">请选择学位</span><input class="zp-select__input" readonly /></div>
+          <span class="zp-select__arrow">⌄</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-item">
+      <div class="lb"><i>*</i>学历</div>
+      <div class="zp-ctl">
+        <div class="zp-select" data-k="education" data-options="高中,中专,大专,本科,硕士研究生,博士研究生">
+          <div class="zp-input"><span class="zp-select__text">请选择您的学历</span><input class="zp-select__input" readonly /></div>
+          <span class="zp-select__arrow">⌄</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 简历里没有对应数据，应该原样留空，不能乱填 -->
+    <div class="form-item">
+      <div class="lb"><i>*</i>是否有补考情况</div>
+      <div class="zp-ctl">
+        <div class="zp-select" data-k="retake" data-options="是,否">
+          <div class="zp-input"><span class="zp-select__text">请选择是否有补考情况</span><input class="zp-select__input" readonly /></div>
+          <span class="zp-select__arrow">⌄</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="zp-foot">
+    <button class="zp-btn primary" type="button">添加</button>
+    <button class="zp-btn" type="button">取消</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  var SCHOOLS = ['示例大学', '示例大学（主校区）', '另一所大学'];
+
+  function rectOf(el) {
+    var r = el.getBoundingClientRect();
+    return { left: r.left, top: r.bottom + 4 };
+  }
+
+  /* ---------- 学校联想：输入就出候选，不选就清空 ---------- */
+  var sch = document.querySelector('[data-k="school"]');
+  var schErr = sch.closest('.zp-ctl').querySelector('.zp-err');
+  var chosen = false;
+  var sug = null;
+
+  function closeSug() {
+    if (sug && sug.parentNode) sug.parentNode.removeChild(sug);
+    sug = null;
+  }
+
+  sch.addEventListener('input', function () {
+    closeSug();
+    schErr.hidden = true;
+    chosen = false;
+    var v = (sch.value || '').trim();
+    if (!v) return;
+    var list = SCHOOLS.filter(function (s) { return s.indexOf(v) >= 0 || v.indexOf(s) >= 0; });
+    if (!list.length) return;
+    var ul = document.createElement('ul');
+    ul.className = 'zp-suggest';
+    list.forEach(function (s) {
+      var li = document.createElement('li');
+      li.textContent = s;
+      li.addEventListener('mousedown', function (e) {
+        e.preventDefault();      // 阻止 blur，真实站点就是这么写的
+        sch.value = s;
+        chosen = true;
+        schErr.hidden = true;
+        closeSug();
+      });
+      ul.appendChild(li);
+    });
+    document.body.appendChild(ul);
+    var p = rectOf(sch);
+    ul.style.left = p.left + 'px';
+    ul.style.top = p.top + 'px';
+    sug = ul;
+  });
+
+  sch.addEventListener('blur', function () {
+    setTimeout(function () {
+      closeSug();
+      if (!chosen && (sch.value || '').trim()) {
+        sch.value = '';
+        schErr.hidden = false;
+      }
+    }, 80);
+  });
+
+  /* ---------- 自研下拉 ---------- */
+  function closeAll() {
+    [].forEach.call(document.querySelectorAll('.zp-dropdown'), function (d) { d.parentNode.removeChild(d); });
+    [].forEach.call(document.querySelectorAll('.zp-select.open'), function (s) { s.classList.remove('open'); });
+  }
+
+  [].forEach.call(document.querySelectorAll('.zp-select'), function (sel) {
+    sel.addEventListener('click', function (e) {
+      if (e.target.closest('.zp-dropdown')) return;
+      var wasOpen = sel.classList.contains('open');
+      closeAll();
+      if (wasOpen) return;
+      sel.classList.add('open');
+      var opts = String(sel.getAttribute('data-options') || '').split(',');
+      var ul = document.createElement('ul');
+      ul.className = 'zp-dropdown';
+      opts.forEach(function (t) {
+        var li = document.createElement('li');
+        li.textContent = t;
+        li.addEventListener('click', function (ev) {
+          ev.stopPropagation();
+          var box = sel.querySelector('.zp-select__text');
+          box.textContent = t;
+          box.classList.add('has');
+          sel.setAttribute('data-value', t);
+          closeAll();
+        });
+        ul.appendChild(li);
+      });
+      document.body.appendChild(ul);
+      var r = sel.getBoundingClientRect();
+      ul.style.position = 'fixed';
+      ul.style.left = r.left + 'px';
+      ul.style.top = (r.bottom + 2) + 'px';
+      ul.style.width = r.width + 'px';
+    });
+  });
+
+  document.addEventListener('click', function (e) {
+    if (!e.target.closest('.zp-select')) closeAll();
+  });
+
+  /* ---------- 日期框：可以打字，失焦校验 ---------- */
+  [].forEach.call(document.querySelectorAll('.zp-date input'), function (inp) {
+    inp.addEventListener('focus', function () { inp.closest('.zp-input').classList.add('is-focus'); });
+    inp.addEventListener('blur', function () {
+      inp.closest('.zp-input').classList.remove('is-focus');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test((inp.value || '').trim())) inp.value = '';
+    });
+  });
+})();
+</script>
+</body>
+</html>

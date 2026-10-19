@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>网申速填</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{width:296px;font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:#f7fbfa;color:#123}
+  .hd{display:flex;align-items:center;gap:8px;padding:12px 14px;background:linear-gradient(135deg,#16b8a6,#0e9a8c);color:#fff}
+  .hd .logo{width:26px;height:26px;border-radius:8px;background:rgba(255,255,255,.22);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700}
+  .hd .t{font-size:14px;font-weight:700}
+  .hd .s{font-size:10.5px;opacity:.85}
+  .body{padding:12px 14px 14px}
+  .who{background:#fff;border:1px solid #e2efed;border-radius:10px;padding:9px 10px;margin-bottom:10px}
+  .who .n{font-size:13px;font-weight:700}
+  .who .m{font-size:10.5px;color:#6b8a88;margin-top:3px;line-height:1.5}
+  .btn{display:block;width:100%;border:none;border-radius:9px;padding:9px;font-size:12.5px;font-weight:600;cursor:pointer;margin-bottom:7px;
+    background:linear-gradient(180deg,#2fc4b2,#16b8a6);color:#fff}
+  .btn.ghost{background:#fff;color:#12897c;border:1px solid #c9eae5}
+  .btn:hover{filter:brightness(1.05)}
+  .link{text-align:center;font-size:11.5px;color:#12897c;cursor:pointer;padding:6px 0 2px}
+  .link:hover{text-decoration:underline}
+  .hint{font-size:10.5px;color:#8aa5a2;line-height:1.55;margin-top:8px;text-align:center}
+  .count{font-size:10.5px;color:#12897c;text-align:center;margin:2px 0 8px}
+</style>
+</head>
+<body>
+  <div class="hd">
+    <div class="logo">速</div>
+    <div>
+      <div class="t">网申速填</div>
+      <div class="s">简历只存在本机</div>
+    </div>
+  </div>
+  <div class="body">
+    <div class="who">
+      <div class="n" id="name">读取中…</div>
+      <div class="m" id="meta"></div>
+    </div>
+    <div class="count" id="count"></div>
+    <button class="btn" id="fill">一键填入当前页</button>
+    <button class="btn ghost" id="fillAll">增强填入（含经历明细）</button>
+    <button class="btn ghost" id="region">选区填入（框选后选类别）</button>
+    <button class="btn ghost" id="showPanel">在本页显示悬浮面板</button>
+    <div class="link" id="open">打开简历资料库 / 导入导出</div>
+    <div class="hint">快捷键 Alt + Shift + F 也可以在页面上一键填入</div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
