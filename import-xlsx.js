@@ -28,6 +28,8 @@
       专业: 'major', 学号: 'studentId', 学制: 'duration', 所在城市: 'city', 培养方式: 'trainMode',
       GPA: 'gpa', 专业排名: 'majorRank', 综合排名: 'overallRank', 主修课程: 'courses',
       论文名称: 'thesis', 论文导师: 'thesisAdvisor', 平均分: 'avgScore',
+      辅导员姓名: 'counselorName', 辅导员: 'counselorName', 辅导员联系方式: 'counselorPhone',
+      是否有海外教育经历: 'overseas', 学历证书编号: 'diplomaNumber', 专业描述: 'description',
     },
     intern: {
       公司名称: 'company', 公司: 'company', 单位名称: 'company',

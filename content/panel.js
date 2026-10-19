@@ -137,7 +137,19 @@
 
   async function loadProfile() {
     const r = await chrome.storage.local.get(['tt_profile']);
-    const p = r.tt_profile || null;
+    let p = r.tt_profile || null;
+    const hasData = p && (Object.values(p.basic || {}).some(v => String(v || '').trim()) ||
+      ['educations','internships','projects','campus','awards','family'].some(k => (p[k] || []).length));
+    if (!hasData) {
+      try {
+        const res = await fetch(chrome.runtime.getURL('data/seed-profile.json'));
+        if (res.ok) {
+          p = await res.json();
+          await chrome.storage.local.set({tt_profile: p, tt_profile_updated: Date.now()});
+        }
+      } catch (e) {}
+    }
+    if (TT.upgradeEducationData) await TT.upgradeEducationData(p);
     state.profile = p;
     return p;
   }
@@ -186,7 +198,7 @@
     const card = h('div', { class: 'card' });
     const head = h('div', { class: 'head' });
     head.appendChild(h('div', { class: 'dot' }));
-    head.appendChild(h('div', { class: 'title', text: '网申速填' }));
+    head.appendChild(h('div', { class: 'title', text: '网申速填 1.1.3' }));
     const minBtn = h('button', { class: 'mini', title: '收起', text: '—' });
     minBtn.addEventListener('click', () => {
       state.open = false;
@@ -408,10 +420,15 @@
     host.appendChild(d);
   }
 
-  async function doFill(mode, rect, force) {
-    if (!state.profile) {
-      await loadProfile();
-    }
+  function doFill(mode, rect, force) {
+    if (state.fillPromise) {toast('正在填写，请等待完成后再操作',2200); return state.fillPromise;}
+    const job = Promise.resolve().then(()=>performFill(mode,rect,force));
+    state.fillPromise = job.finally(()=>{state.fillPromise=null;});
+    return state.fillPromise;
+  }
+
+  async function performFill(mode, rect, force) {
+    await loadProfile();
     if (!state.profile) {
       toast('还没有简历资料，<a>点这里录入</a>', 6000);
       const a = TT.host.querySelector('.toast a');
@@ -419,10 +436,10 @@
       return;
     }
     const t0 = performance.now();
-    const tip = toast('正在匹配用户信息，最多需要 5 秒，请等待片刻… <b>0 秒</b>');
+    const tip = toast('正在填写并等待网页更新，请等待完成… <b>0 秒</b>');
     const timer = setInterval(() => {
       const s = ((performance.now() - t0) / 1000).toFixed(0);
-      if (tip && tip.isConnected) tip.innerHTML = '正在匹配用户信息，最多需要 5 秒，请等待片刻… <b>' + s + ' 秒</b>';
+      if (tip && tip.isConnected) tip.innerHTML = '正在填写并等待网页更新，请等待完成… <b>' + s + ' 秒</b>';
     }, 400);
     try {
       const res = await TT.engine.fill(state.profile, Object.assign({ mode, rect }, force || {}));

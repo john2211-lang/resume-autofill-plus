@@ -34,9 +34,12 @@ const SCHEMA = [
       ['degree', '学位', ['博士', '硕士', '学士', '无']], ['studyForm', '学习形式', ['全日制', '非全日制']],
       ['schoolType', '院校类型', ['985', '211', '双一流', '普通本科', '其他']], ['schoolBatch', '录取批次'],
       ['start', '开始时间', 'date'], ['end', '结束时间', 'date'], ['duration', '学制'], ['city', '所在城市'],
-      ['gpa', 'GPA / 平均分'], ['majorRank', '专业排名'], ['overallRank', '综合排名'],
+      ['gpa', 'GPA / 平均分'], ['majorRank', '专业排名'], ['overallRank', '班级 / 综合排名'],
       ['studentId', '学号'], ['trainMode', '培养方式'], ['thesisAdvisor', '论文导师'],
+      ['description', '专业描述', 'area'],
       ['courses', '主修课程', 'area'], ['thesis', '论文 / 毕业设计', 'area'],
+      ['counselorName', '辅导员姓名'], ['counselorPhone', '辅导员联系方式'],
+      ['overseas', '是否有海外教育经历', ['否', '是']], ['diplomaNumber', '学历证书编号'],
     ],
   },
   {
@@ -416,7 +419,9 @@ function upgradeProfile(d) {
 
 async function boot() {
   const r = await chrome.storage.local.get(['tt_profile']);
-  if (r.tt_profile) data = r.tt_profile;
+  const existing = r.tt_profile;
+  const hasData = existing && (Object.values(existing.basic || {}).some(v => String(v || '').trim()) || ['educations','internships','projects','campus','awards','family'].some(k => (existing[k] || []).length));
+  if (hasData) data = existing;
   else {
     try {
       let seed = window.__TT_SEED__;
@@ -431,6 +436,7 @@ async function boot() {
   for (const k of ['basic', 'job', 'self', 'extras']) data[k] = data[k] || {};
   for (const s of SCHEMA) if (s.list) data[s.key] = data[s.key] || [];
   if (!data.skills || !data.skills.length) data.skills = [];
+  await window.__TT__.upgradeEducationData(data);
   const upgraded = upgradeProfile(data);
   render();
   setStatus(upgraded ? '已按新的「内容 / 职责 / 成果」拆好 ' + upgraded + ' 条经历' : '已就绪', upgraded > 0);

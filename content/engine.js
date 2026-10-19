@@ -58,6 +58,9 @@
     // Resolve the nearest field's own heading before walking siblings. A two-column
     // grid can otherwise expose the previous field's selected value as a label.
     if (isZhaopin()) {
+      const item = el.closest('.el-form-item');
+      const ownLabel = item && item.querySelector('.el-form-item__label');
+      if (ownLabel && txt(ownLabel)) return [txt(ownLabel)];
       let cell = el.parentElement;
       for (let depth = 0; cell && depth < 6; depth++, cell = cell.parentElement) {
         const controls = [...cell.querySelectorAll('input,textarea,select,[role="combobox"]')]
@@ -221,6 +224,7 @@
     );
     for (const el of nodes) {
       const tag = el.tagName.toLowerCase();
+      if (isZhaopin() && el.matches('[role="combobox"]') && el.querySelector('input,textarea,select')) continue;
       if (tag === 'input') {
         const t = (el.type || 'text').toLowerCase();
         if (SKIP_INPUT_TYPES.test(t)) continue;
@@ -504,7 +508,13 @@
     }
     const list = profile[TT.LISTS[type]] || [];
     // 页面上经历块比简历多时，多出来的块留空，别回绕去填第 1 条
+    if (isZhaopin() && idx >= list.length) return '';
     const rec = list[idx] || {};
+    if (type === 'edu') {
+      if (field === 'supervisorPhone') return rec.supervisorPhone || rec.counselorPhone || rec.counsellorPhone || rec['辅导员联系方式'] || '';
+      if (field === 'supervisor') return rec.supervisor || rec.counselorName || rec.counsellorName || rec['辅导员姓名'] || rec['辅导员'] || ''; 
+      if (field === 'supervisorRelation' || field === 'supervisorTitle') return rec[field] || ((rec.counselorName || rec.counsellorName || rec['辅导员姓名'] || rec['辅导员']) ? '辅导员' : '');
+    }
     // 组合字段
     if (field === 'orgRole') return [rec.org, rec.role].filter(Boolean).join('｜');
     if (field === 'nameRole') return [rec.name, rec.role].filter(Boolean).join('｜');
@@ -1163,6 +1173,11 @@
      先把关键字输进去，列表从几百条缩到几条，再点就不会点错。
      返回 'popup'（弹层里的搜索框）/ 'self'（主输入框本身可写）/ ''（没有可输入的地方） */
   async function typeToFilter(el, v) {
+    if (isZhaopin()) {
+      // Never search the page for another writable input: that was the school field.
+      if (el.readOnly || !/^(INPUT|TEXTAREA)$/.test(el.tagName)) return '';
+      el.focus(); setNativeValue(el, v); await wait(240); return 'self';
+    }
     const roots = popupRoots(el, snapshotNodes());
     for (const r of roots) {
       const inp = [...r.querySelectorAll('input')].find(
@@ -1194,7 +1209,46 @@
 
   /* 点开 -> 等选项 -> 选 -> 校验 -> 没成就换策略重试
      返回 { ok, debug }，debug 会进「填写记录」，方便定位是哪一步没成 */
+  async function fillZhaopinElement(el, value, label) {
+    const v = String(value).trim();
+    const debug = {label, strategies:['智联组件内隔离填写']};
+    const select = el.closest('.el-select');
+    const autocomplete = el.closest('.el-autocomplete');
+    if (select && el.readOnly) {
+      if (aliasSet(v).includes(norm(el.value))) return {ok:true, debug};
+      let popup = select.querySelector('.el-select-dropdown');
+      el.click();
+      for (let i=0;i<20;i++) {
+        popup = popup || select.querySelector('.el-select-dropdown');
+        const options = popup ? [...popup.querySelectorAll('.el-select-dropdown__item,[role="option"]')].filter(n=>visible(n) && !n.matches('.is-disabled,[aria-disabled="true"]')) : [];
+        const hit = options.find(n=>aliasSet(v).includes(norm(txt(n))));
+        if (hit) {realClick(hit); await wait(150); el.blur(); return {ok:aliasSet(v).includes(norm(el.value)),debug};}
+        await wait(80);
+      }
+      pressKey(el,'Escape'); return {ok:false,debug};
+    }
+    if (autocomplete && !el.readOnly) {
+      el.focus(); setNativeValue(el,v);
+      const owned = autocomplete.getAttribute('aria-owns');
+      for (let i=0;i<22;i++) {
+        const list = (owned && document.getElementById(owned)) || autocomplete.querySelector('[role="listbox"],.el-autocomplete-suggestion__list');
+        const options = list ? [...list.querySelectorAll('li,[role="option"]')].filter(visible) : [];
+        const hit = options.find(n=>norm(txt(n))===norm(v));
+        if (hit) {realClick(hit); await wait(150); el.blur(); await wait(180); return {ok:norm(el.value)===norm(v),debug};}
+        await wait(80);
+      }
+      el.blur(); await wait(200);
+      const error = el.closest('.el-form-item')?.querySelector('.el-form-item__error');
+      return {ok: !/学校|院校/.test(label || '') && norm(el.value)===norm(v) && !(error && visible(error)),debug};
+    }
+    return null;
+  }
+
   async function fillPicker(el, value, label) {
+    if (isZhaopin()) {
+      const isolated = await fillZhaopinElement(el,value,label);
+      if (isolated) return isolated;
+    }
     const v = String(value).trim();
     const debug = { label, value: v, strategies: [], options: 0, sample: [], popupClass: [] };
     if (!v) return { ok: false, debug };
@@ -1970,7 +2024,12 @@
         continue;
       }
       const section = item.sec || guessSec(item);
-      const m = matchParts(parts, section);
+      let m = matchParts(parts, section);
+      if (isZhaopin() && /教育|学习经历/.test(section)) {
+        const fields = {'入学时间':'start','毕业时间':'end','学校名称':'school','受教育类型':'studyForm','学位':'degree','学历':'education','研究方向':'direction','院系':'college','专业':'major','专业课程':'courses','年级排名':'majorRank','是否有海外学习经历':'overseas','证明人':'supervisor','证明人关系':'supervisorRelation','证明人职务':'supervisorTitle','证明人联系方式':'supervisorPhone'};
+        const label = norm(parts[0]);
+        if (fields[label]) m = {type:'edu',field:fields[label],part:parts[0]};
+      }
       if (!m) {
         dropped.push('[没匹配] ' + parts.join(' / ') + ' | ' + (el.tagName || '') + (el.readOnly ? ' readonly' : ''));
         continue;
@@ -2148,6 +2207,29 @@
         e.idx = idx;
       });
     }
+    if (isZhaopin()) {
+      // A Zhaopin form is one record. Autocomplete wrappers and fields are not records.
+      const forms = [...new Set(entries.map(e => e.el.closest('form.el-form')).filter(Boolean))];
+      const assigned = new Map();
+      for (const form of forms) {
+        const own = entries.filter(e => form.contains(e.el));
+        for (const type of new Set(own.map(e => e.type).filter(t => TT.LISTS[t]))) {
+          const records = profile[TT.LISTS[type]] || [];
+          const anchorField = type === 'edu' ? 'school' : type === 'intern' ? 'company' : 'name';
+          const anchors = own.filter(e => e.type === type && e.field === anchorField);
+          const current = anchors.map(e => norm(e.el.value || '')).find(Boolean);
+          let idx = records.findIndex(r => current && norm(r[anchorField]) === current);
+          const module = form.closest('.apply-module__body') || form.parentElement?.parentElement;
+          const saved = module ? [...module.querySelectorAll('form.el-form')].filter(f => f !== form && !f.querySelector('input,textarea,select')) : [];
+          const savedTexts = saved.map(f => norm(txt(f)));
+          const used = assigned.get(type) || new Set();
+          if (idx < 0) idx = records.findIndex((r,i) => !used.has(i) && !savedTexts.some(t => norm(r[anchorField]) && t.includes(norm(r[anchorField]))));
+          if (idx < 0) idx = records.length; // all records exist: leave this new form empty
+          used.add(idx); assigned.set(type,used);
+          own.filter(e => e.type === type).forEach(e => {e.idx=idx;});
+        }
+      }
+    }
     buildEntries.dropped = dropped; // 面板「填写记录」会展示
     return entries;
   }
@@ -2276,6 +2358,10 @@
       (e) => e.type + '.' + e.field + ' ← ' + e.label + ' [' + (e.section || '') + '] ' + e.kind + ' #' + (e.idx + 1)
     );
 
+    if (isZhaopin()) {
+      const order = {education:0,degree:1,studyForm:2,school:9};
+      entries.sort((a,b)=>(order[a.field] ?? 5)-(order[b.field] ?? 5));
+    }
     for (const e of entries) {
       if (!e.el.isConnected || (isZhaopin() && concealed(e.el))) continue;
       if (scopeTypes && !scopeTypes.has(e.type) && !(e.type === 'edu' && e.idx === 0)) continue;
@@ -2285,6 +2371,7 @@
         continue;
       }
       const label = e.label || e.field;
+      if (isZhaopin() && !isSuggestInput(e.el) && 'value' in e.el && aliasSet(value).includes(norm(e.el.value))) continue;
 
       if (e.kind === 'checkbox') {
         const on = /^(是|接受|同意|愿意|yes|true|1)$/i.test(String(value).trim());
@@ -2533,8 +2620,31 @@
     return false;
   }
 
+  async function fillStable(profile, opts) {
+    if (!isZhaopin()) return fill(profile,opts);
+    const results=[];
+    const started=performance.now();
+    for(let pass=0;pass<3;pass++) {
+      const result=await fill(profile,{...(opts || {}),expand:false}); results.push(result);
+      await wait(180);
+      const root=(opts && opts.root) || document;
+      const pending=buildEntries(root,profile,'enhanced').filter(e=>!concealed(e.el) && (!opts?.rect || inRegion(e.el,opts.rect))).filter(e=>{
+        const value=valueFor(profile,e.type,e.field,e.idx);
+        return value && 'value' in e.el && !aliasSet(value).includes(norm(e.el.value));
+      });
+      if(!pending.length) break;
+    }
+    const latest=results[results.length-1];
+    const logs=new Map();
+    results.forEach(r=>r.log.forEach(item=>logs.set(item.label+'|'+item.value,item)));
+    const log=[...logs.values()];
+    const undo=()=>results.reduceRight((n,r)=>n+r.undo(),0);
+    return {...latest,log,filled:log.length,ms:Math.round(performance.now()-started),undo};
+  }
+
   TT.engine = {
-    fill, buildEntries, valueFor, labelParts, sectionOf, visible,
+    fill: fillStable, buildEntries, valueFor, labelParts, sectionOf, visible,
+    _typeToFilter: typeToFilter,
     popupOptions, fillPicker, retryPicker, inferFieldByOptions,
     previewRegion, remapEntries, mirrorField,
     // 调试用（面板「复制诊断」也会用到）：单步执行某个控件

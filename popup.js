@@ -13,6 +13,8 @@ function fmt(p) {
 }
 
 async function boot() {
+  const version = chrome.runtime.getManifest().version;
+  document.getElementById('extensionVersion').textContent = '网申速填 ' + version;
   const r = await chrome.storage.local.get(['tt_profile']);
   const f = fmt(r.tt_profile);
   document.getElementById('name').textContent = f.name;
@@ -22,15 +24,17 @@ async function boot() {
   try {
     const res = await chrome.tabs.sendMessage(tab.id, { type: 'TT_PING' });
     document.getElementById('count').textContent = res && res.fields
-      ? '本页识别到 ' + res.fields + ' 个可填字段'
+      ? (res.version === version ? '页面已连接 ' + version + ' · ' + res.fields + ' 个字段' : '网页仍是旧脚本，请刷新招聘网页')
       : '本页暂未识别到表单字段';
   } catch (e) {
-    document.getElementById('count').textContent = '当前页面无法注入（chrome:// 页面或扩展商店页）';
+    document.getElementById('count').textContent = '页面未连接，请刷新招聘网页后重开插件';
   }
 
   const send = async (mode) => {
     const t = await activeTab();
     try {
+      for (const button of document.querySelectorAll('button')) button.disabled = true;
+      document.getElementById('count').textContent = '正在填写，请等待完成…';
       await chrome.tabs.sendMessage(t.id, { type: 'TT_FILL', mode });
       window.close();
     } catch (e) {

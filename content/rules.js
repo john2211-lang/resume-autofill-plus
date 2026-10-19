@@ -38,6 +38,17 @@
   ];
 
   TT.RULES = [
+    { re: /证明人(联系方式|电话|手机)/, type: 'edu', field: 'supervisorPhone', section: /教育|学习/ },
+    { re: /证明人关系/, type: 'edu', field: 'supervisorRelation', section: /教育|学习/ },
+    { re: /证明人(职务|职位)/, type: 'edu', field: 'supervisorTitle', section: /教育|学习/ },
+    { re: /^证明人(姓名|名字)?$/, type: 'edu', field: 'supervisor', section: /教育|学习/ },
+    { re: /辅导员(联系方式|电话|手机)/, type: 'edu', field: 'counselorPhone' },
+    { re: /辅导员(姓名|名字)?/, type: 'edu', field: 'counselorName' },
+    { re: /学历证书(编号|号码)|毕业证(书)?(编号|号码)/, type: 'edu', field: 'diplomaNumber' },
+    { re: /是否有海外(教育|学习)经历|海外(教育|学习)经历/, type: 'edu', field: 'overseas' },
+    { re: /专业描述|教育经历描述|学习经历描述/, type: 'edu', field: 'description' },
+    { re: /班级排名|综合排名/, type: 'edu', field: 'overallRank' },
+    { re: /^成绩$/, type: 'edu', field: 'gpa', section: /教育|学习/ },
     // ---------- 手机号区号 ----------
     { re: /区号|国际区号|国家代码|countrycode|手机国家|地区码/, type: 'basic', field: 'phoneCountry' },
 
@@ -79,7 +90,7 @@
     { re: /(期望|要求).*(薪资|薪酬|待遇)/, type: 'job', field: 'salary' },
 
     // ---------- 教育 / 学历（先具体后笼统）----------
-    { re: /院校(类型|层次|性质)|学校(类型|性质|层次)|是否(985|211)/, type: 'edu', field: 'schoolType' },
+    { re: /院校(类型|层次|性质)|学校(类型|性质|层次|类别)|是否(985|211)/, type: 'edu', field: 'schoolType' },
     { re: /院校批次|录取批次/, type: 'edu', field: 'schoolBatch' },
     { re: /学习形式|就读形式|培养形式|受教育类型|教育类型|教育形式|受教育形式/, type: 'edu', field: 'studyForm' },
     { re: /培养方式|培养类型/, type: 'edu', field: 'trainMode' },

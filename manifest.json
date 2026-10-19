@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "网申速填 Plus",
-  "version": "1.1.0",
+  "version": "1.1.3",
   "description": "本地简历填表助手：保留通用/北森引擎，改进智联招聘字段隔离和经历填写。",
   "permissions": [
     "storage",
@@ -37,6 +37,7 @@
         "https://*/*"
       ],
       "js": [
+        "profile-upgrade.js",
         "content/rules.js",
         "content/engine.js",
         "content/panel.js",
@@ -57,5 +58,5 @@
       ]
     }
   ],
-  "version_name": "1.1.0-beta.1"
+  "version_name": "1.1.3 智联控件隔离与教育信息增强"
 }
