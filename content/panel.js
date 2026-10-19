@@ -198,7 +198,7 @@
     const card = h('div', { class: 'card' });
     const head = h('div', { class: 'head' });
     head.appendChild(h('div', { class: 'dot' }));
-    head.appendChild(h('div', { class: 'title', text: '网申速填 1.1.6' }));
+    head.appendChild(h('div', { class: 'title', text: '网申速填 1.1.7' }));
     const minBtn = h('button', { class: 'mini', title: '收起', text: '—' });
     minBtn.addEventListener('click', () => {
       state.open = false;

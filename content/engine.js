@@ -6,6 +6,8 @@
 
   const isZhaopin = () => /(^|\.)zhaopin\.com$/i.test(location.hostname);
 
+  const isHotjob = () => /(^|\.)hotjob\.cn$/i.test(location.hostname);
+
   function norm(s) {
     return String(s == null ? '' : s)
       .replace(/[\s\u00a0]+/g, '')
@@ -55,6 +57,11 @@
   }
 
   function labelParts(el) {
+    if (isHotjob()) {
+      const item=el.closest(".ant-form-item");
+      const label=item && item.querySelector(".ant-form-item-label label");
+      if (label) return [txt(label)];
+    }
     // Resolve the nearest field's own heading before walking siblings. A two-column
     // grid can otherwise expose the previous field's selected value as a label.
     if (isZhaopin()) {
@@ -195,6 +202,11 @@
   /* 只认「控件前面的标题」：h1-h6 / legend / class 含 title、head，
      或短文本且以板块词开头。取不到就返回空，宁可没有上下文也不要串行。 */
   function sectionOf(el) {
+    if (isHotjob()) {
+      const cell=el.closest(".form-cell");
+      const heading=cell && cell.querySelector(".tit-wrap .tit p");
+      if (heading) return txt(heading);
+    }
     if (isZhaopin()) {
       const module=el.closest('.apply-module__body,.apply-module');
       const heading=module && module.querySelector('h1,h2,h3,h4,h5,h6');
@@ -232,6 +244,7 @@
     );
     for (const el of nodes) {
       const tag = el.tagName.toLowerCase();
+      if (isHotjob() && (concealed(el) || el.closest('.ant-modal,.ant-select-dropdown') || el.matches('.ant-select-search__field'))) continue;
       if (isZhaopin() && el.matches('[role="combobox"]') && el.querySelector('input,textarea,select')) continue;
       if (tag === 'input') {
         const t = (el.type || 'text').toLowerCase();
@@ -249,11 +262,11 @@
     }
     // radio 分组
     const radios = [...root.querySelectorAll('input[type="radio"]')].filter(
-      (r) => !r.disabled && !r.closest('[data-tt-ignore]')
+      (r) => !r.disabled && !r.closest('[data-tt-ignore]') && !(isHotjob() && (concealed(r) || r.closest('.ant-rate')))
     );
     const groups = new Map();
     for (const r of radios) {
-      const key = r.name || 'g' + (r.parentElement ? [...r.parentElement.parentElement.children].indexOf(r.parentElement) : 0) + '_' + (r.closest('.ant-radio-group,.el-radio-group,.layui-form') ? 'x' : 'y') + '_' + (r.closest('.ant-form-item,.el-form-item,.form-item,tr') ? labelParts(r).join('|') : '');
+      const key = (isHotjob() && r.closest('.ant-radio-group') ? 'hotjob_'+[...root.querySelectorAll('.ant-radio-group')].indexOf(r.closest('.ant-radio-group')) : '') || r.name || 'g' + (r.parentElement ? [...r.parentElement.parentElement.children].indexOf(r.parentElement) : 0) + '_' + (r.closest('.ant-radio-group,.el-radio-group,.layui-form') ? 'x' : 'y') + '_' + (r.closest('.ant-form-item,.el-form-item,.form-item,tr') ? labelParts(r).join('|') : '');
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(r);
     }
@@ -516,7 +529,7 @@
     }
     const list = profile[TT.LISTS[type]] || [];
     // 页面上经历块比简历多时，多出来的块留空，别回绕去填第 1 条
-    if (isZhaopin() && idx >= list.length) return '';
+    if ((isZhaopin() || isHotjob()) && idx >= list.length) return '';
     const rec = list[idx] || {};
     if (type === 'family') return rec[field] == null ? '' : String(rec[field]);
     if (type === 'edu') {
@@ -1260,7 +1273,75 @@
     return null;
   }
 
+
+  async function fillHotjob(el,value,label) {
+    const v=String(value).trim();
+    const debug={label,strategies:['hotjob-isolated']};
+    const fail=()=>({ok:false,debug});
+    const major=/专业/.test(label || el.placeholder || '');
+    const matches=text=>norm(text)===norm(v) || (major && norm(String(text).replace(/[（(][^（）()]*[）)]\s*$/,''))===norm(v));
+    const exact=(nodes)=>{
+      const items=[...nodes].filter(n=>!concealed(n));
+      const strict=items.find(n=>norm(txt(n))===norm(v));
+      if(strict) return strict;
+      const qualified=items.filter(n=>matches(txt(n)));
+      return qualified.length===1 ? qualified[0] : null;
+    };
+    const modalInput=/^(请选择学校|请选择毕业院校|请选择专业)$/.test(el.placeholder || '');
+    if (modalInput) {
+      if (matches(el.value)) return {ok:true,debug};
+      realClick(el);
+      let modal;
+      for(let i=0;i<20;i++) {
+        modal=[...document.querySelectorAll('.ant-modal')].find(n=>!concealed(n) && n.querySelector('.school-form'));
+        if(modal) break; await wait(100);
+      }
+      if(!modal) return fail();
+      const search=modal.querySelector('input[placeholder="请输入学校名称"],input[placeholder="请输入专业名称"]');
+      if(!search) return fail();
+      search.focus();setNativeValue(search,v);
+      let hit;
+      for(let i=0;i<35;i++) {
+        hit=exact(modal.querySelectorAll('.school-item,.major-item,.profession-item'));
+        // Search result class varies by schema; only exact leaf candidates inside this modal.
+        if(!hit) hit=exact([...modal.querySelectorAll('.school-list span,.subject-wrap span,.subject-wrap .subject-item,.major-list span,.major-list div')].filter(n=>!n.children.length));
+        if(hit) break; await wait(120);
+      }
+      if(!hit) {
+        debug.strategies.push('no-exact-candidate');
+        const cancel=[...modal.querySelectorAll('button')].find(n=>norm(txt(n))==='取消');
+        if(cancel) realClick(cancel);
+        return fail();
+      }
+      realClick(hit);await wait(150);
+      const confirm=[...modal.querySelectorAll('.ant-modal-footer button')].find(n=>norm(txt(n))==='选择');
+      if(confirm) realClick(confirm);
+      await wait(200);
+      return {ok:matches(el.value),debug};
+    }
+    const select=el.closest('.ant-select');
+    if(!select) return null;
+    const selected=select.querySelector('.ant-select-selection-selected-value');
+    if(selected && aliasSet(v).includes(norm(txt(selected)))) return {ok:true,debug};
+    const trigger=select.querySelector('[role="combobox"]') || el;
+    realClick(trigger);await wait(150);
+    const id=trigger.getAttribute('aria-controls') || trigger.getAttribute('aria-owns');
+    let popup=id && document.getElementById(id);
+    if(!popup || concealed(popup)) popup=[...document.querySelectorAll('.ant-select-dropdown')].find(n=>!concealed(n));
+    if(!popup) return fail();
+    const wanted=aliasSet(v);
+    const hit=[...popup.querySelectorAll('[role="option"],.ant-select-dropdown-menu-item')].find(n=>!concealed(n) && !n.classList.contains('ant-select-dropdown-menu-item-disabled') && (wanted.includes(norm(txt(n))) || cutAdmin(norm(txt(n)))===cutAdmin(norm(v))));
+    if(!hit) {pressKey(trigger,'Escape');return fail();}
+    realClick(hit);await wait(160);
+    const now=select.querySelector('.ant-select-selection-selected-value');
+    return {ok:!!now && (wanted.includes(norm(txt(now))) || cutAdmin(norm(txt(now)))===cutAdmin(norm(v))),debug};
+  }
+
   async function fillPicker(el, value, label) {
+    if (isHotjob()) {
+      const result=await fillHotjob(el,value,label);
+      if (result) return result;
+    }
     if (isZhaopin()) {
       const isolated = await fillZhaopinElement(el,value,label);
       if (isolated) return isolated;
@@ -2041,6 +2122,14 @@
       }
       const section = item.sec || guessSec(item);
       let m = matchParts(parts, section);
+      if (isHotjob()) {
+        const label=norm(parts[0]);
+        if (/亲属关系/.test(section)) m=null; // Employer-relative disclosures are not family history.
+        if (/教育经历/.test(section)) {
+          const fields={'开始时间':'start','结束时间':'end','学校':'school','学历':'education','学位':'degree','专业':'major','城市':'city'};
+          if (fields[label]) m={type:'edu',field:fields[label],part:parts[0]};
+        }
+      }
       if (isZhaopin() && /教育|学习经历/.test(section)) {
         const fields = {'入学时间':'start','毕业时间':'end','学校名称':'school','受教育类型':'studyForm','学位':'degree','学历':'education','研究方向':'direction','院系':'college','专业':'major','专业课程':'courses','年级排名':'majorRank','是否有海外学习经历':'overseas','证明人':'supervisor','证明人关系':'supervisorRelation','证明人职务':'supervisorTitle','证明人联系方式':'supervisorPhone'};
         const label = norm(parts[0]);
@@ -2062,6 +2151,8 @@
       const box = shellOf(el);
       if (el.tagName === 'SELECT') {
         push(el, 'select', m, label, section, null, parts);
+      } else if (isHotjob() && /^(请选择学校|请选择毕业院校|请选择专业)$/.test(el.placeholder || '')) {
+        push(el, 'picker', m, label, section, null, parts);
       } else if (isZhaopin() && isSuggestInput(el)) {
         push(el, 'picker', m, label, section, null, parts);
       } else if (isDatePickerish(el, label)) {
@@ -2084,7 +2175,9 @@
       const parts = labelParts(first);
       if (!parts.length || TT.SKIP.test(norm(parts.join(' ')))) continue;
       const section = sectionOf(first);
-      const m = matchParts(parts, section);
+      let m = matchParts(parts, section);
+      if (isHotjob() && /亲属关系/.test(section)) continue;
+      if (isHotjob() && /最高学历是否为境外院校/.test(parts.join(''))) m={type:'edu',field:'overseas',part:parts[0]};
       if (!m) continue;
       entries.push({
         el: first, kind: 'radio', type: m.type, field: m.field,
@@ -2259,6 +2352,23 @@
         }
       }
     }
+    if (isHotjob()) {
+      const cells=[...new Set(entries.filter(e=>e.type==='edu' && /教育经历/.test(e.section)).map(e=>e.el.closest('.form-cell-inner')).filter(Boolean))];
+      const chronological=[...(profile.educations || [])].map((r,i)=>({r,i})).sort((a,b)=>String(a.r.start||'').localeCompare(String(b.r.start||'')));
+      for (const e of entries) {
+        if (e.type!=='edu') continue;
+        const cell=e.el.closest('.form-cell-inner');
+        e.idx=/教育经历/.test(e.section) ? (chronological[cells.indexOf(cell)]?.i ?? (profile.educations || []).length) : 0;
+        if (e.field==='city') {
+          const item=e.el.closest('.ant-form-item');
+          e.regionPart=item ? [...item.querySelectorAll('[role="combobox"]')].indexOf(e.el) : 0;
+        }
+      }
+      for (const e of entries.filter(e=>e.type==='basic' && /hometown|sourcePlace|household/.test(e.field))) {
+        const item=e.el.closest('.ant-form-item');
+        e.regionPart=item ? [...item.querySelectorAll('[role="combobox"]')].indexOf(e.el) : 0;
+      }
+    }
     buildEntries.dropped = dropped; // 面板「填写记录」会展示
     return entries;
   }
@@ -2362,10 +2472,10 @@
     const started = performance.now();
     const root = opts.root || document;
     const region = opts.rect || null;
-    const full = mode === 'enhanced' || mode === 'region' || isZhaopin();
+    const full = mode === 'enhanced' || mode === 'region' || isZhaopin() || isHotjob();
 
     let entries = buildEntries(root, profile, mode);
-    if (full && opts.expand !== false && !isZhaopin()) {
+    if (full && opts.expand !== false && !isZhaopin() && !isHotjob()) {
       await expandRecords(profile, region);
       entries = buildEntries(root, profile, mode);
     }
@@ -2403,6 +2513,15 @@
       if (value === '' || value == null) {
         noData.push((e.label || e.field) + '（' + e.type + '.' + e.field + ' 第' + (e.idx + 1) + '条）');
         continue;
+      }
+      if (isHotjob() && e.regionPart != null) {
+        const parts=String(value).split(/[\/\s]+/).filter(Boolean).filter(x=>x!=='中国');
+        if (parts.length>1) value=parts[e.regionPart] || '';
+        else {
+          const match=String(value).match(/^(.+?(?:省|自治区|特别行政区|北京市|上海市|天津市|重庆市))(.+?市)?/);
+          if (match) value=e.regionPart===0 ? match[1] : (match[2] || match[1]);
+        }
+        if (!value) continue;
       }
       const label = e.label || e.field;
       if (isZhaopin() && !isSuggestInput(e.el) && 'value' in e.el && aliasSet(value).includes(norm(e.el.value))) continue;
@@ -2473,7 +2592,7 @@
           continue;
         }
         // 兜底 1：标签认错时，用下拉里的选项反推该填什么
-        const alt = isZhaopin() ? null : await retryByOptions(e.el, profile);
+        const alt = (isZhaopin() || isHotjob()) ? null : await retryByOptions(e.el, profile);
         if (alt) {
           log.push({ _target: e.el, label: label + '→' + alt.field, value: alt.value });
           filled++;
@@ -2484,7 +2603,7 @@
           (e.el.tagName === 'INPUT' || e.el.tagName === 'TEXTAREA') &&
           !e.el.readOnly &&
           !/^(radio|checkbox|file|hidden)$/i.test(e.el.type || '');
-        if (writable && !(isZhaopin() && isSuggestInput(e.el))) {
+        if (writable && !(isZhaopin() && isSuggestInput(e.el)) && !isHotjob()) {
           const dv = isDateText(value) && looksLikeDateControl(e.el, e.label) ? dateFor(e.el, value) : value;
           e.el.focus();
           setNativeValue(e.el, dv);
@@ -2584,7 +2703,7 @@
     }
 
     // Verify after blur/debounced validation; writing text alone is not a success.
-    if (isZhaopin()) {
+    if (isZhaopin() || isHotjob()) {
       await wait(350);
       for (let i = log.length - 1; i >= 0; i--) {
         const entry = entries.find(e => e.el === log[i]._target &&
