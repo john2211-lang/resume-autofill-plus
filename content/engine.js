@@ -511,9 +511,12 @@
     if (isZhaopin() && idx >= list.length) return '';
     const rec = list[idx] || {};
     if (type === 'edu') {
-      if (field === 'supervisorPhone') return rec.supervisorPhone || rec.counselorPhone || rec.counsellorPhone || rec['辅导员联系方式'] || '';
-      if (field === 'supervisor') return rec.supervisor || rec.counselorName || rec.counsellorName || rec['辅导员姓名'] || rec['辅导员'] || ''; 
-      if (field === 'supervisorRelation' || field === 'supervisorTitle') return rec[field] || ((rec.counselorName || rec.counsellorName || rec['辅导员姓名'] || rec['辅导员']) ? '辅导员' : '');
+      const find = pattern => {const key=Object.keys(rec).find(k=>pattern.test(String(k).replace(/\s/g,'')) && rec[k]);return key ? rec[key] : '';};
+      const counselor = rec.counselorName || rec.counsellorName || rec.counselor || rec.counsellor || find(/辅导员(姓名|名字)?$/);
+      const counselorPhone = rec.counselorPhone || rec.counsellorPhone || rec.counselorContact || find(/辅导员.*(联系方式|电话|手机)/);
+      if (field === 'supervisorPhone') return rec.supervisorPhone || counselorPhone || '';
+      if (field === 'supervisor') return rec.supervisor || counselor || '';
+      if (field === 'supervisorRelation' || field === 'supervisorTitle') return rec[field] || (counselor ? '辅导员' : '');
     }
     // 组合字段
     if (field === 'orgRole') return [rec.org, rec.role].filter(Boolean).join('｜');
@@ -1209,6 +1212,7 @@
 
   /* 点开 -> 等选项 -> 选 -> 校验 -> 没成就换策略重试
      返回 { ok, debug }，debug 会进「填写记录」，方便定位是哪一步没成 */
+  const confirmedZhaopin = new WeakMap();
   async function fillZhaopinElement(el, value, label) {
     const v = String(value).trim();
     const debug = {label, strategies:['智联组件内隔离填写']};
@@ -1228,13 +1232,16 @@
       pressKey(el,'Escape'); return {ok:false,debug};
     }
     if (autocomplete && !el.readOnly) {
-      el.focus(); setNativeValue(el,v);
+      if (confirmedZhaopin.get(el) === v && norm(el.value) === norm(v)) return {ok:true,debug};
+      el.focus();
+      const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;
+      setter.call(el,v); fire(el,'input');
       const owned = autocomplete.getAttribute('aria-owns');
-      for (let i=0;i<22;i++) {
+      for (let i=0;i<50;i++) {
         const list = (owned && document.getElementById(owned)) || autocomplete.querySelector('[role="listbox"],.el-autocomplete-suggestion__list');
         const options = list ? [...list.querySelectorAll('li,[role="option"]')].filter(visible) : [];
         const hit = options.find(n=>norm(txt(n))===norm(v));
-        if (hit) {realClick(hit); await wait(150); el.blur(); await wait(180); return {ok:norm(el.value)===norm(v),debug};}
+        if (hit) {realClick(hit); await wait(150); el.blur(); await wait(180); const ok=norm(el.value)===norm(v);if(ok)confirmedZhaopin.set(el,v);return {ok,debug};}
         await wait(80);
       }
       el.blur(); await wait(200);
@@ -2040,6 +2047,8 @@
       const box = shellOf(el);
       if (el.tagName === 'SELECT') {
         push(el, 'select', m, label, section, null, parts);
+      } else if (isZhaopin() && isSuggestInput(el)) {
+        push(el, 'picker', m, label, section, null, parts);
       } else if (isDatePickerish(el, label)) {
         push(el, 'datepicker', m, label, section, null, parts);
       } else if (isDropdownish(el)) {
@@ -2362,7 +2371,12 @@
       const order = {education:0,degree:1,studyForm:2,school:9};
       entries.sort((a,b)=>(order[a.field] ?? 5)-(order[b.field] ?? 5));
     }
-    for (const e of entries) {
+    for (let e of entries) {
+      if (isZhaopin() && !e.el.isConnected) {
+        // Degree/education selects rebuild downstream inputs. Resolve the live control.
+        const current=buildEntries(root,profile,mode).find(n=>n.type===e.type && n.field===e.field && n.idx===e.idx && (!region || inRegion(n.el,region)));
+        if (current) e=current;
+      }
       if (!e.el.isConnected || (isZhaopin() && concealed(e.el))) continue;
       if (scopeTypes && !scopeTypes.has(e.type) && !(e.type === 'edu' && e.idx === 0)) continue;
       let value = valueFor(profile, e.type, e.field, e.idx);
@@ -2626,20 +2640,25 @@
     const started=performance.now();
     for(let pass=0;pass<3;pass++) {
       const result=await fill(profile,{...(opts || {}),expand:false}); results.push(result);
-      await wait(180);
+      await wait(650);
       const root=(opts && opts.root) || document;
       const pending=buildEntries(root,profile,'enhanced').filter(e=>!concealed(e.el) && (!opts?.rect || inRegion(e.el,opts.rect))).filter(e=>{
         const value=valueFor(profile,e.type,e.field,e.idx);
-        return value && 'value' in e.el && !aliasSet(value).includes(norm(e.el.value));
+        return value && 'value' in e.el && (!aliasSet(value).includes(norm(e.el.value)) || (e.field==='school' && isSuggestInput(e.el) && confirmedZhaopin.get(e.el)!==String(value)));
       });
-      if(!pending.length) break;
+      if(pass>=1 && !pending.length) break;
     }
     const latest=results[results.length-1];
     const logs=new Map();
     results.forEach(r=>r.log.forEach(item=>logs.set(item.label+'|'+item.value,item)));
-    const log=[...logs.values()];
+    const finalEntries=buildEntries((opts && opts.root)||document,profile,'enhanced').filter(e=>!concealed(e.el) && (!opts?.rect || inRegion(e.el,opts.rect)));
+    const satisfied=e=>{const v=valueFor(profile,e.type,e.field,e.idx);return v && 'value' in e.el && aliasSet(v).includes(norm(e.el.value));};
+    const complete=new Set(finalEntries.filter(satisfied).map(e=>e.label));
+    const log=[...logs.values()].filter(item=>complete.has(item.label));
+    const noData=finalEntries.filter(e=>!valueFor(profile,e.type,e.field,e.idx)).map(e=>e.label+'（第'+(e.idx+1)+'条）');
+    const skipped=finalEntries.filter(e=>valueFor(profile,e.type,e.field,e.idx) && !satisfied(e)).map(e=>({label:e.label,reason:'网页重绘后仍未保留预期值',el:e.el}));
     const undo=()=>results.reduceRight((n,r)=>n+r.undo(),0);
-    return {...latest,log,filled:log.length,ms:Math.round(performance.now()-started),undo};
+    return {...latest,log,noData,skipped,filled:log.length,ms:Math.round(performance.now()-started),undo};
   }
 
   TT.engine = {

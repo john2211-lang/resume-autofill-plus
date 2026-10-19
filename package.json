@@ -1,6 +1,6 @@
 {
   "name": "resume-autofill-plus",
-  "version": "1.1.3",
+  "version": "1.1.5",
   "private": true,
   "description": "Local-first resume form filler",
   "scripts": {

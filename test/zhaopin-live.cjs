@@ -24,4 +24,20 @@ const select=(label,id,options)=>input(label,id,`<div class="el-select"><input i
  // A readonly select must never type into a neighboring autocomplete input.
  await w.__TT__.engine._typeToFilter(d.querySelector('#studyForm'),'其他');assert.equal(school.value,'示例大学');console.log('PASS 下拉搜索不能改写相邻输入框');
  w.close();
+ const source=new JSDOM(fs.readFileSync(path.join(__dirname,'fixtures/zhaopin-real.html'),'utf8'));
+ const schoolMarkup=source.window.document.querySelector('.apply-form-school').closest('.el-form-item').outerHTML;source.window.close();
+ const actual=new JSDOM('<h2>教育经历</h2>'+schoolMarkup,{url:'https://xiaoyuan.zhaopin.com',runScripts:'outside-only',pretendToBeVisual:true}).window;
+ actual.scrollTo=()=>{};for(const f of ['rules','engine'])actual.eval(fs.readFileSync(path.join(root,'content',f+'.js'),'utf8'));
+ const native=actual.document.querySelector('input');let chosen=false;
+ native.addEventListener('input',()=>actual.setTimeout(()=>{const ul=actual.document.querySelector('[role="listbox"]');ul.innerHTML='<li>示例大学</li>';ul.parentElement.parentElement.style.display='block';ul.querySelector('li').onclick=()=>{chosen=true;native.value='示例大学';};},1100));
+ native.addEventListener('blur',()=>actual.setTimeout(()=>{if(!chosen)native.value=''},100));
+ await actual.__TT__.engine.fill({educations:[{school:'示例大学'}]},{mode:'basic',expand:false});
+ assert.equal(chosen,true);assert.equal(native.value,'示例大学');console.log('PASS 真实学校DOM等待慢速候选并提交选择');actual.close();
+ const redraw=new JSDOM('<h2>教育经历</h2><form class="el-form">'+input('学校名称','school')+input('学历','ed','<select id="ed"><option value="">请选择</option><option>硕士研究生</option></select>')+'<div id="contacts">'+input('证明人','person')+input('证明人关系','relation')+'</div></form>',{url:'https://xiaoyuan.zhaopin.com',runScripts:'outside-only',pretendToBeVisual:true}).window;
+ redraw.scrollTo=()=>{};for(const f of ['rules','engine'])redraw.eval(fs.readFileSync(path.join(root,'content',f+'.js'),'utf8'));
+ redraw.document.querySelector('#ed').onchange=()=>redraw.setTimeout(()=>{redraw.document.querySelector('#contacts').innerHTML=input('证明人','person')+input('证明人关系','relation');},700);
+ await redraw.__TT__.engine.fill({educations:[{school:'示例大学',education:'硕士研究生',counselorName:'延时重绘辅导员'}]},{mode:'basic',expand:false});
+ await new Promise(r=>setTimeout(r,800));
+ assert.equal(redraw.document.querySelector('#person').value,'延时重绘辅导员');assert.equal(redraw.document.querySelector('#relation').value,'辅导员');console.log('PASS 首轮完成后延时重建证明人控件也能自动补齐');redraw.close();
+
 })().catch(e=>{console.error(e);process.exitCode=1});

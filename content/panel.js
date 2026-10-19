@@ -198,7 +198,7 @@
     const card = h('div', { class: 'card' });
     const head = h('div', { class: 'head' });
     head.appendChild(h('div', { class: 'dot' }));
-    head.appendChild(h('div', { class: 'title', text: '网申速填 1.1.3' }));
+    head.appendChild(h('div', { class: 'title', text: '网申速填 1.1.5' }));
     const minBtn = h('button', { class: 'mini', title: '收起', text: '—' });
     minBtn.addEventListener('click', () => {
       state.open = false;
@@ -396,11 +396,12 @@
       const entries = TT.engine ? TT.engine.buildEntries(document, state.profile || {}, 'enhanced') : [];
       lines.push('【字段识别】共 ' + entries.length + ' 项');
       for (const e of entries) {
-        lines.push(e.type + '.' + e.field + ' <= ' + e.label + ' [' + e.section + '] (' + e.kind + ')');
+        lines.push(e.type + '.' + e.field + ' <= ' + e.label + ' [' + e.section + '] (' + e.kind + ') 第' + (e.idx + 1) + '条 数据:' + (TT.engine.valueFor(state.profile || {}, e.type, e.field, e.idx) ? '有' : '缺失'));
       }
       const last = state.last;
       if (last) {
         lines.push('', '【本次填写】填入 ' + last.filled + ' 项，未填 ' + ((last.skipped || []).length) + ' 项');
+        lines.push('【缺少资料】' + ((last.noData || []).join('；') || '无'));
         for (const s of last.skipped || []) {
           lines.push('- ' + s.label + '：' + s.reason);
           const wrap = s.el && s.el.parentElement && s.el.parentElement.parentElement;
@@ -447,6 +448,8 @@
       const sec = ((performance.now() - t0) / 1000).toFixed(1);
       if (!res.filled) {
         toast('这个范围内没找到可填字段', 4200);
+      } else if ((res.noData || []).length) {
+        toast('已填入 <b>' + res.filled + '</b> 项，<b>' + res.noData.length + '</b> 项缺少资料（建议反馈里可复制诊断）',5200);
       } else if (res.skipped && res.skipped.length) {
         toast(
           '已填入 <b>' + res.filled + '</b> 项，<b>' + res.skipped.length + '</b> 项没填上（看「填写记录」）',
@@ -456,7 +459,7 @@
         toast('已填入 <b>' + res.filled + '</b> 项，耗时 <b>' + sec + '</b> 秒', 3200);
       }
       state.last = {
-        filled: res.filled, ms: res.ms, log: res.log, skipped: res.skipped, undo: res.undo, mode,
+        filled: res.filled, ms: res.ms, log: res.log, skipped: res.skipped, noData: res.noData || [], undo: res.undo, mode,
         time: new Date().toLocaleString(),
       };
       if (tip) tip.remove();

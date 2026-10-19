@@ -59,7 +59,7 @@ const field=(label,id,extra='')=>`<div class="resume-field"><div class="caption"
  const realProfile={...profile,educations:[profile.educations[0],{school:'另一所大学',start:'2020-09-01',end:'2024-06-30',college:'商学院',major:'经济学',education:'本科',degree:'学士'}]};
  w=dom('<div class="apply-module__body"><h2>教育经历</h2>'+real+'</div>');
  let actual=w.__TT__.engine.buildEntries(w.document,realProfile,'basic');
- check('真实DOM学校只扫描一次且为输入框',()=>{assert.equal(actual.filter(e=>e.field==='school').length,1);assert.equal(actual.find(e=>e.field==='school').el.tagName,'INPUT')});
+ check('真实DOM学校只扫描一次且为输入框',()=>{assert.equal(actual.filter(e=>e.field==='school').length,1);assert.equal(actual.find(e=>e.field==='school').el.tagName,'INPUT');assert.equal(actual.find(e=>e.field==='school').kind,'picker')});
  check('真实DOM整张教育表使用同一记录',()=>assert.ok(actual.every(e=>e.type==='edu' && e.idx===0)));
  check('真实DOM毕业日期归属当前教育经历',()=>assert.equal(actual.find(e=>e.label==='毕业时间').field,'end'));
  check('教育证明人无资料不使用本人电话',()=>assert.equal(w.__TT__.engine.valueFor(realProfile,'edu','supervisorPhone',0),''));
@@ -78,6 +78,17 @@ const field=(label,id,extra='')=>`<div class="resume-field"><div class="caption"
  check('教育升级重复执行不改动',()=>assert.equal(w.__TT__.mergeEducationDefaults(stored,seed),false));
  const eduFields=w.__TT__.engine.buildEntries(w.document,stored,'enhanced').map(e=>e.field);
  check('新增教育字段均可识别',()=>assert.deepEqual(Array.from(eduFields),['counselorName','counselorPhone','diplomaNumber','overseas','description']));
+ w.close();
+ w=dom('<h2>教育经历</h2>');
+ w.eval(fs.readFileSync(path.join(root,'profile-upgrade.js'),'utf8'));
+ w.__TT_SEED__={educations:[{school:'示例大学',counselorName:'本地辅导员'}]};
+ let writes=0;w.chrome={storage:{local:{set:async()=>{writes++}}}};w.fetch=async()=>{throw new Error('must use packaged local seed')};
+ const old={educations:[{school:' 示例大学 '} ]};
+ await w.__TT__.upgradeEducationData(old);
+ check('页面无需请求即可补入本地辅导员资料',()=>{assert.equal(old.educations[0].counselorName,'本地辅导员');assert.equal(writes,1)});
+ const imported={educations:[{school:'示例大学','学院辅导员 姓名':'导入辅导员','辅导员 联系方式':'CONTACT-EXAMPLE'}]};
+ check('证明人支持辅导员字段模糊匹配',()=>assert.equal(w.__TT__.engine.valueFor(imported,'edu','supervisor',0),'导入辅导员'));
+ check('证明人联系方式支持辅导员字段模糊匹配',()=>assert.equal(w.__TT__.engine.valueFor(imported,'edu','supervisorPhone',0),'CONTACT-EXAMPLE'));
  w.close();
  console.log(`${checks} checks passed`);
 })().catch(e=>{console.error(e);process.exitCode=1});
