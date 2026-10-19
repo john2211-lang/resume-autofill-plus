@@ -8,6 +8,15 @@
 
   const isHotjob = () => /(^|\.)hotjob\.cn$/i.test(location.hostname);
 
+  const isPhoenix = () => /(^|\.)zhiye\.com$/i.test(location.hostname) && !!document.querySelector(".form-item--phoenix");
+
+  function phoenixSection(el) {
+    const form=el.closest(".form[name]");
+    if(!form || !form.id) return "";
+    const heading=[...document.querySelectorAll("div[id]")].find(n=>n.id===form.id && n!==form && !n.matches(".form") && !n.querySelector("input,textarea"));
+    return heading ? txt(heading) : "";
+  }
+
   function norm(s) {
     return String(s == null ? '' : s)
       .replace(/[\s\u00a0]+/g, '')
@@ -57,6 +66,11 @@
   }
 
   function labelParts(el) {
+    if (isPhoenix()) {
+      const item=el.closest(".form-item--phoenix");
+      const label=item && item.querySelector(".form-item__text");
+      if(label) return [txt(label)];
+    }
     if (isHotjob()) {
       const item=el.closest(".ant-form-item");
       const label=item && item.querySelector(".ant-form-item-label label");
@@ -202,6 +216,7 @@
   /* 只认「控件前面的标题」：h1-h6 / legend / class 含 title、head，
      或短文本且以板块词开头。取不到就返回空，宁可没有上下文也不要串行。 */
   function sectionOf(el) {
+    if(isPhoenix()) {const section=phoenixSection(el);if(section)return section;} 
     if (isHotjob()) {
       const cell=el.closest(".form-cell");
       const heading=cell && cell.querySelector(".tit-wrap .tit p");
@@ -244,6 +259,7 @@
     );
     for (const el of nodes) {
       const tag = el.tagName.toLowerCase();
+      if(isPhoenix() && (concealed(el) || !el.closest('.form-item--phoenix') || el.closest('.constant-main-selector-container,.phoenix-date-picker'))) continue;
       if (isHotjob() && (concealed(el) || el.closest('.ant-modal,.ant-select-dropdown') || el.matches('.ant-select-search__field'))) continue;
       if (isZhaopin() && el.matches('[role="combobox"]') && el.querySelector('input,textarea,select')) continue;
       if (tag === 'input') {
@@ -522,6 +538,8 @@
     if (type === 'self') return self[field] == null ? '' : String(self[field]);
     if (type === 'extra') {
       const ex = profile.extras || {};
+      if (field === 'language') return ex.language || (ex.englishLevel || ex.englishScore ? '英语' : '');
+      if (field === 'languageLevel') return ex.languageLevel || '';
       if (field === 'englishLevel') return ex.englishLevel || '';
       if (field === 'englishScore') return ex.englishScore || '';
       if (field === 'computerLevel') return ex.computerLevel || '';
@@ -529,7 +547,7 @@
     }
     const list = profile[TT.LISTS[type]] || [];
     // 页面上经历块比简历多时，多出来的块留空，别回绕去填第 1 条
-    if ((isZhaopin() || isHotjob()) && idx >= list.length) return '';
+    if ((isZhaopin() || isHotjob() || isPhoenix()) && idx >= list.length) return '';
     const rec = list[idx] || {};
     if (type === 'family') return rec[field] == null ? '' : String(rec[field]);
     if (type === 'edu') {
@@ -1274,6 +1292,95 @@
   }
 
 
+
+  function phoenixDisplay(el) {
+    const select=el.closest('.phoenix-select');
+    if(!select) return '';
+    return txt(select.querySelector('.phoenix-select__tipEle')) || txt(select.querySelector('.phoenix-select__placeHolder:not(.phoenix-select__placeHolder--show)'));
+  }
+  function phoenixLayer(selector) {return [...document.querySelectorAll(selector)].filter(n=>!concealed(n) && visible(n)).at(-1);}
+  async function fillPhoenixDate(el,value,label) {
+    const target=String(value).match(/^(\d{4})[-/.](\d{1,2})(?:[-/.](\d{1,2}))?/);
+    if(!target) return false;
+    const y=+target[1],m=+target[2],d=+(target[3]||1);
+    const display=digitsOf(phoenixDisplay(el));
+    // Even when the input holds typed text, only the committed display counts.
+    if(display===digitsOf(value)) return true;
+    el.scrollIntoView?.({block:'center',behavior:'instant'});
+    realClick(el);await wait(220);
+    let panel=phoenixLayer('.phoenix-date-picker');if(!panel)return false;
+    const monthOnly=!!panel.querySelector('.phoenix-calendar-month-calendar');
+    const yearText=()=>txt(panel.querySelector(monthOnly?'.phoenix-calendar-month-panel-year-select-content':'.phoenix-calendar-year-select'));
+    for(let i=0;i<100;i++) {
+      const current=Number((yearText().match(/\d{4}/)||[])[0]);
+      if(current===y)break;if(!current)return false;
+      const btn=panel.querySelector(monthOnly?`.phoenix-calendar-month-panel-${current>y?'prev':'next'}-year-btn`:`.phoenix-calendar-${current>y?'prev':'next'}-year-btn`);
+      if(!btn)return false;realClick(btn);await wait(70);panel=phoenixLayer('.phoenix-date-picker')||panel;
+    }
+    if(!yearText().includes(String(y)))return false;
+    if(monthOnly) {
+      const cell=[...panel.querySelectorAll('.phoenix-calendar-month-panel-month')].find(n=>txt(n)===m+'月' && !n.closest('[class*="disabled"]'));
+      if(!cell)return false;realClick(cell);
+    } else {
+      for(let i=0;i<12;i++) {
+        const current=Number((txt(panel.querySelector('.phoenix-calendar-month-select')).match(/\d+/)||[])[0]);
+        if(current===m)break;if(!current)return false;
+        const btn=panel.querySelector(`.phoenix-calendar-${current>m?'prev':'next'}-month-btn`);if(!btn)return false;
+        realClick(btn);await wait(70);panel=phoenixLayer('.phoenix-date-picker')||panel;
+      }
+      const cell=[...panel.querySelectorAll('.phoenix-calendar-cell')].find(n=>!/(last-month|next-month|disabled)/.test(n.className) && Number(txt(n))===d);
+      if(!cell)return false;realClick(cell.querySelector('a')||cell);
+    }
+    await wait(160);el.blur();await wait(100);
+    const expected=String(y)+String(m).padStart(2,'0')+(monthOnly?'':String(d).padStart(2,'0'));
+    return digitsOf(phoenixDisplay(el))===expected;
+  }
+  async function fillPhoenixPicker(el,value,label) {
+    const debug={label,strategies:['phoenix-confirmed-selection']};
+    const shown=phoenixDisplay(el);const wanted=String(value).trim();
+    if(aliasSet(wanted).includes(norm(shown)))return {ok:true,debug};
+    el.scrollIntoView?.({block:'center',behavior:'instant'});
+    realClick(el);await wait(240);
+    let layer;
+    for(let i=0;i<15;i++) {layer=phoenixLayer('.constant-main-selector-container,.area-selector-container');if(layer)break;await wait(80);}
+    if(!layer){debug.strategies.push('no-layer');return {ok:false,debug};}
+    const isRegion=/籍贯|户口所在地|现居住地|工作城市/.test(label);
+    const v=isRegion?String(value).split(/[、,，;；]/)[0]:wanted;
+    const clean=t=>cutAdmin(norm(t));
+    const regionKey=t=>norm(t).replace(/[\/＞>]/g,'').replace(/特别行政区|维吾尔自治区|壮族自治区|回族自治区|自治区|省|市|区|县/g,'');
+    const candidates=()=>[...layer.querySelectorAll('.list-item-container,.area-item-container')].filter(n=>!concealed(n));
+    const hitOf=()=>candidates().find(n=>aliasSet(v).includes(norm(txt(n))) || (isRegion && clean(txt(n))===clean(v)));
+    let hit=hitOf();
+    if(!hit) {
+      const search=layer.querySelector('input[placeholder="搜索"]');
+      if(search) {
+        const query=isRegion?v.split(/[\/]/).filter(Boolean).at(-1).replace(/^.*?(?:省|自治区)/,'').replace(/^.*?市(?=.+[区县])/,''):v;
+        search.focus();setNativeValue(search,query);
+        for(let i=0;i<20;i++) {await wait(100);hit=hitOf();if(hit)break;}
+        // Regional search results include a complete administrative path.
+        if(!hit && isRegion) {
+          const leaf=clean(query);const matches=candidates().filter(n=>{
+            const name=txt(n.querySelector('.area-item-name')) || txt(n).split(/[\/＞>]/).at(-1);
+            const path=txt(n.querySelector('.area-item-path'));
+            return clean(name)===leaf && (!path || regionKey(v).includes(regionKey(path)) || regionKey(v)===regionKey(name));
+          });
+          if(matches.length===1)hit=matches[0];
+        }
+      }
+    }
+    if(!hit) {
+      const cancel=[...layer.querySelectorAll('.selector-footer-button .phoenix-button,.area-footer-button .phoenix-button')].find(n=>txt(n)==='取消');if(cancel)realClick(cancel.querySelector('.phoenix-button__wraper')||cancel);
+      debug.strategies.push('no-candidate');
+      return {ok:false,debug};
+    }
+    if(!hit.querySelector('.RadioChecked,.CheckboxChecked') && !/selected|checked/.test(hit.className))realClick(hit.querySelector('.area-item-name')||hit);
+    await wait(100);
+    const confirm=[...layer.querySelectorAll('.selector-footer-button .phoenix-button,.area-footer-button .phoenix-button')].find(n=>txt(n)==='确定');
+    if(confirm)realClick(confirm.querySelector('.phoenix-button__wraper')||confirm);await wait(260);el.blur();
+    const now=phoenixDisplay(el);
+    return {ok:aliasSet(v).includes(norm(now)) || (isRegion && regionKey(now).includes(regionKey(v))),debug};
+  }
+
   async function fillHotjob(el,value,label) {
     const v=String(value).trim();
     const debug={label,strategies:['hotjob-isolated']};
@@ -1338,6 +1445,7 @@
   }
 
   async function fillPicker(el, value, label) {
+    if(isPhoenix() && el.closest(".phoenix-select")) return fillPhoenixPicker(el,value,label);
     if (isHotjob()) {
       const result=await fillHotjob(el,value,label);
       if (result) return result;
@@ -1872,6 +1980,7 @@
 
   /* 日期 / 月份 / 年份选择器：能直接写值就写，写不进去就点开面板逐级点选 */
   async function fillDatePicker(el, value, label) {
+    if(isPhoenix() && el.closest(".phoenix-select")) return fillPhoenixDate(el,value,label);
     const gran = granularityOf(el);
     const text = dateFor(el, value, gran);
     if (!text) return false;
@@ -2122,6 +2231,22 @@
       }
       const section = item.sec || guessSec(item);
       let m = matchParts(parts, section);
+      if(isPhoenix()) {
+        const label=norm(parts[0]);
+        const maps={
+          '家庭情况':['family',{'姓名':'name','与本人关系':'relation','工作单位':'company','联系电话':'phone','职务':'title'}],
+          '项目经历':['project',{'项目名称':'name','职务':'role','开始时间':'start','结束时间':'end','项目描述':'content'}],
+          '在校实践':['campus',{'实践名称':'org','开始时间':'start','结束时间':'end','实践描述':'description'}],
+          '在校职务':['campus',{'职务名称':'role','开始时间':'start','结束时间':'end','职务描述':'description'}],
+          '证书':['cert',{'证书名称':'name','获得时间':'date','证书描述':'description'}],
+          '语言能力':['extra',{'语言类型':'language','掌握程度':'languageLevel'}],
+          '技能':['skill',{'技能名称':'name','掌握程度':'level'}]
+        };
+        if(section==='附加问题') m=null;
+        else if(maps[section]) {const [type,fields]=maps[section];m=fields[label]?{type,field:fields[label],part:parts[0]}:null;}
+        else if(section==='求职意向' && /期望月薪/.test(label)) m={type:'job',field:'salary',part:parts[0]};
+        else if(label==='现居住地') m={type:'basic',field:'currentPlace',part:parts[0]};
+      }
       if (isHotjob()) {
         const label=norm(parts[0]);
         if (/亲属关系/.test(section)) m=null; // Employer-relative disclosures are not family history.
@@ -2369,6 +2494,23 @@
         e.regionPart=item ? [...item.querySelectorAll('[role="combobox"]')].indexOf(e.el) : 0;
       }
     }
+    if(isPhoenix()) {
+      const groups=new Map();
+      for(const e of entries) {
+        if(!TT.LISTS[e.type]) {e.idx=0;continue;}
+        const form=e.el.closest('.form[name]');
+        const key=e.section+'|'+e.type;
+        const forms=groups.get(key)||[];
+        if(!forms.includes(form)) forms.push(form);
+        groups.set(key,forms);e.idx=forms.indexOf(form);
+      }
+      // Phoenix radios have no native input; scan the actual visual groups.
+      for(const group of root.querySelectorAll('.phoenix-radio-group')) {
+        const section=sectionOf(group);const parts=labelParts(group);const label=norm(parts[0]);
+        const field=label==='性别'?'gender':label==='婚否'?'marriage':'';
+        if(field && section==='个人信息') entries.push({el:group,kind:'phoenixRadio',type:'basic',field,label:parts[0],section,idx:0,parts});
+      }
+    }
     buildEntries.dropped = dropped; // 面板「填写记录」会展示
     return entries;
   }
@@ -2472,10 +2614,10 @@
     const started = performance.now();
     const root = opts.root || document;
     const region = opts.rect || null;
-    const full = mode === 'enhanced' || mode === 'region' || isZhaopin() || isHotjob();
+    const full = mode === 'enhanced' || mode === 'region' || isZhaopin() || isHotjob() || isPhoenix();
 
     let entries = buildEntries(root, profile, mode);
-    if (full && opts.expand !== false && !isZhaopin() && !isHotjob()) {
+    if (full && opts.expand !== false && !isZhaopin() && !isHotjob() && !isPhoenix()) {
       await expandRecords(profile, region);
       entries = buildEntries(root, profile, mode);
     }
@@ -2526,6 +2668,12 @@
       const label = e.label || e.field;
       if (isZhaopin() && !isSuggestInput(e.el) && 'value' in e.el && aliasSet(value).includes(norm(e.el.value))) continue;
 
+      if(e.kind==='phoenixRadio') {
+        const hit=[...e.el.querySelectorAll('.phoenix-radio')].find(n=>aliasSet(value).includes(norm(txt(n))));
+        if(hit) {realClick(hit);log.push({_target:e.el,label,value});filled++;}
+        else skipped.push({label,reason:'未找到对应选项'});
+        continue;
+      }
       if (e.kind === 'checkbox') {
         const on = /^(是|接受|同意|愿意|yes|true|1)$/i.test(String(value).trim());
         if (e.el.checked !== on) {
@@ -2592,7 +2740,7 @@
           continue;
         }
         // 兜底 1：标签认错时，用下拉里的选项反推该填什么
-        const alt = (isZhaopin() || isHotjob()) ? null : await retryByOptions(e.el, profile);
+        const alt = (isZhaopin() || isHotjob() || isPhoenix()) ? null : await retryByOptions(e.el, profile);
         if (alt) {
           log.push({ _target: e.el, label: label + '→' + alt.field, value: alt.value });
           filled++;
@@ -2603,7 +2751,7 @@
           (e.el.tagName === 'INPUT' || e.el.tagName === 'TEXTAREA') &&
           !e.el.readOnly &&
           !/^(radio|checkbox|file|hidden)$/i.test(e.el.type || '');
-        if (writable && !(isZhaopin() && isSuggestInput(e.el)) && !isHotjob()) {
+        if (writable && !(isZhaopin() && isSuggestInput(e.el)) && !isHotjob() && !isPhoenix()) {
           const dv = isDateText(value) && looksLikeDateControl(e.el, e.label) ? dateFor(e.el, value) : value;
           e.el.focus();
           setNativeValue(e.el, dv);
