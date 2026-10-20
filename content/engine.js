@@ -262,10 +262,11 @@
   function collectControls(root) {
     const list = [];
     const nodes = root.querySelectorAll(
-      'input, textarea, select, [contenteditable="true"], [role="combobox"]'
+      'input, textarea, select, [contenteditable="true"], [role="combobox"], .phoenix-select'
     );
     for (const el of nodes) {
       const tag = el.tagName.toLowerCase();
+      if(el.matches('.phoenix-select') && (!isPhoenix() || el.querySelector('input,textarea')))continue;
       if(isPhoenix() && (concealed(el) || !el.closest('.form-item--phoenix') || el.closest('.constant-main-selector-container,.phoenix-date-picker'))) continue;
       if (isHotjob() && (concealed(el) || el.closest('.ant-modal,.ant-select-dropdown') || el.matches('.ant-select-search__field'))) continue;
       if (isZhaopin() && el.matches('[role="combobox"]') && el.querySelector('input,textarea,select')) continue;
@@ -1317,7 +1318,14 @@
   function phoenixDisplay(el) {
     const select=el.closest('.phoenix-select');
     if(!select) return '';
-    return txt(select.querySelector('.phoenix-select__tipEle')) || txt(select.querySelector('.phoenix-select__singleValue')) || txt(select.querySelector('.phoenix-select__placeHolder:not(.phoenix-select__placeHolder--show)'));
+    return txt(select.querySelector('.phoenix-select__tipEle')) || [...select.querySelectorAll('.phoenix-select__tag')].map(txt).filter(Boolean).join('、') || txt(select.querySelector('.phoenix-select__singleValue')) || txt(select.querySelector('.phoenix-select__placeHolder:not(.phoenix-select__placeHolder--show)'));
+  }
+  function phoenixChoose(node) {
+    if(!node)return;
+    // A mousedown outside-handler may unmount the portal before its click callback.
+    // Dispatch only activation on the exact icon/content node, leaving focus alone.
+    if(typeof node.click==='function')node.click();
+    else node.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,view:window,detail:1}));
   }
   function phoenixLayer(selector) {return [...document.querySelectorAll(selector)].filter(n=>!concealed(n) && visible(n)).at(-1);}
   async function fillPhoenixDate(el,value,label) {
@@ -1413,10 +1421,11 @@
       debug.strategies.push('no-candidate');
       return {ok:false,debug};
     }
-    if(!hit.querySelector('.RadioChecked,.CheckboxChecked,[class*="RadioChecked"],[class*="CheckboxChecked"]') && !/selected|checked/.test(hit.className))realClick(hit.querySelector('.icon-container')||hit.querySelector('.item-text-label,.area-item-name')||hit);
+    if(!hit.querySelector('.RadioChecked,.CheckboxChecked,[class*="RadioChecked"],[class*="CheckboxChecked"]') && !/selected|checked/.test(hit.className))phoenixChoose(hit.querySelector('.icon-container svg')||hit.querySelector('.icon-container')||hit.querySelector('.item-text-label,.area-item-name')||hit);
     await wait(100);
+    layer=phoenixLayer('.constant-main-selector-container,.area-selector-container')||layer;
     const confirm=[...layer.querySelectorAll('.phoenix-button')].find(n=>txt(n)==='确定');
-    if(confirm)realClick(confirm.querySelector('.phoenix-button__wraper')||confirm);await wait(260);el.blur();
+    if(confirm)phoenixChoose(confirm.querySelector('.phoenix-button__content')||confirm.querySelector('.phoenix-button__wraper')||confirm);await wait(260);el.blur();
     const now=phoenixDisplay(el);
     return {ok:aliasSet(v).includes(norm(now)) || (isRegion && (regionKey(now).includes(regionKey(v)) || regionKey(v).endsWith(regionKey(now)) && regionKey(now).length>=2)),debug};
   }
