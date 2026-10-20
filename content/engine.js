@@ -554,7 +554,10 @@
     // 页面上经历块比简历多时，多出来的块留空，别回绕去填第 1 条
     if ((isZhaopin() || isHotjob() || isPhoenix()) && idx >= list.length) return '';
     const rec = list[idx] || {};
-    if (type === 'family') return rec[field] == null ? '' : String(rec[field]);
+    if (type === 'family') {
+      if(field === 'occupation') return [rec.company || rec.school,rec.title || rec.position].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(' / ');
+      return rec[field] == null ? '' : String(rec[field]);
+    }
     if (type === 'edu') {
       const find = pattern => {const key=Object.keys(rec).find(k=>pattern.test(String(k).replace(/\s/g,'')) && rec[k]);return key ? rec[key] : '';};
       const counselor = rec.counselorName || rec.counsellorName || rec.counselor || rec.counsellor || find(/辅导员(姓名|名字)?$/);
@@ -1994,6 +1997,7 @@
       const date=dateFor(el,value);
       if(!date) return false;
       setNativeValue(el,date);
+      fire(el,'blur');fire(el,'focusout');
       return el.value===date;
     }
     if(isPhoenix() && el.closest(".phoenix-select")) return fillPhoenixDate(el,value,label);
@@ -2253,7 +2257,7 @@
           const fields={'开始时间':'start','结束时间':'end','工作单位':'company','部门/岗位':'departmentPosition','主要工作内容及业绩成绩':'workAchievements','证明人及联系电话':'supervisorContact'};
           m=fields[label]?{type:'intern',field:fields[label],part:parts[0]}:null;
         } else if (/家庭|亲属/.test(section)) {
-          const fields={'姓名':'name','与本人关系':'relation','工作单位':'company','职务':'title','联系电话':'phone'};
+          const fields={'姓名':'name','与本人关系':'relation','关系':'relation','出生年月':'birth','出生日期':'birth','政治面貌':'politics','工作单位、职位或就读学校':'occupation','工作单位及职务':'occupation','工作单位':'company','职务':'title','联系电话':'phone'};
           m=fields[label]?{type:'family',field:fields[label],part:parts[0]}:null;
         } else if (/证明人/.test(label)) m=null;
       }
@@ -2702,8 +2706,9 @@
 
       if(is51job() && e.kind==='text' && e.el.matches('input[cname],textarea[cname]') && !e.el.readOnly) {
         const before=e.el.value;
-        if(before===value) continue;
+        if(before===value) {fire(e.el,'blur');fire(e.el,'focusout');continue;}
         setNativeValue(e.el,value);
+        fire(e.el,'blur');fire(e.el,'focusout');
         if(e.el.value===value) {
           undoStack.push({el:e.el,kind:'text',before});
           log.push({_target:e.el,label,value});filled++;
