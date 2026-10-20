@@ -11,6 +11,7 @@
   const isPhoenix = () => /(^|\.)zhiye\.com$/i.test(location.hostname) && !!document.querySelector(".form-item--phoenix");
 
   const is51job = () => /(^|\.)51job\.com$/i.test(location.hostname) && !!document.querySelector('#container input[cname],#container textarea[cname],#container select[cname]');
+  const isModern51 = () => /(^|\.)51job\.com$/i.test(location.hostname) && /^\/consumer\/pc\/resume\//.test(location.pathname);
   function job51Section() { return txt(document.querySelector('#container h1') || document.querySelector('h1')); }
 
   function phoenixSection(el) {
@@ -220,6 +221,7 @@
   /* 只认「控件前面的标题」：h1-h6 / legend / class 含 title、head，
      或短文本且以板块词开头。取不到就返回空，宁可没有上下文也不要串行。 */
   function sectionOf(el) {
+    if(isModern51()) {const module=el.closest('.resume-module');const header=module?.querySelector('.resume-module-header .title');if(header)return txt(header);}
     if (is51job()) return job51Section();
     if(isPhoenix()) {const section=phoenixSection(el);if(section)return section;} 
     if (isHotjob()) {
@@ -1461,7 +1463,7 @@
       const result=await fillHotjob(el,value,label);
       if (result) return result;
     }
-    if (isZhaopin()) {
+    if (isZhaopin() || isModern51()) {
       const isolated = await fillZhaopinElement(el,value,label);
       if (isolated) return isolated;
     }
@@ -2251,6 +2253,10 @@
       }
       const section = item.sec || guessSec(item);
       let m = matchParts(parts, section);
+      if(isModern51() && /家庭|家属|亲属/.test(section)) {
+        const fields={'称谓':'relation','与本人关系':'relation','姓名':'name','出生年月':'birth','出生日期':'birth','政治面貌':'politics','工作单位及职务':'occupation','工作单位、职位或就读学校':'occupation','工作单位':'company','职务':'title','联系电话':'phone'};
+        m=fields[norm(parts[0])]?{type:'family',field:fields[norm(parts[0])],part:parts[0]}:null;
+      }
       if(is51job()) {
         const label=norm(parts[0]);
         if (/工作|实习/.test(section)) {
@@ -2542,6 +2548,21 @@
       }
     }
     buildEntries.dropped = dropped; // 面板「填写记录」会展示
+    if(isModern51()) {
+      const used=new Set();
+      const forms=[...new Set(entries.filter(e=>e.type==='family').map(e=>e.el.closest('form.el-form')).filter(Boolean))];
+      for(const form of forms) {
+        const own=entries.filter(e=>e.type==='family' && form.contains(e.el));
+        const records=profile.family || [];
+        const current=norm(own.find(e=>e.field==='name')?.el.value || '');
+        const module=form.closest('.resume-module');
+        const saved=module ? [...module.querySelectorAll('.common-item')].filter(n=>!n.querySelector('form') && !n.contains(form)).map(n=>norm(txt(n))) : [];
+        let idx=records.findIndex(r=>current && norm(r.name)===current);
+        if(idx<0)idx=records.findIndex((r,i)=>!used.has(i) && !saved.some(t=>r.name && r.relation && t.includes(norm(r.name)) && t.includes(norm(r.relation))));
+        if(idx<0)idx=records.length;
+        used.add(idx);own.forEach(e=>e.idx=idx);
+      }
+    }
     if(is51job()) {
       for(const e of entries) {
         const suffix=e.el.id.match(/^cc_.+_\d+_(\d+)$/);
@@ -2650,10 +2671,10 @@
     const started = performance.now();
     const root = opts.root || document;
     const region = opts.rect || null;
-    const full = mode === 'enhanced' || mode === 'region' || isZhaopin() || isHotjob() || isPhoenix() || is51job();
+    const full = mode === 'enhanced' || mode === 'region' || isZhaopin() || isHotjob() || isPhoenix() || is51job() || isModern51();
 
     let entries = buildEntries(root, profile, mode);
-    if (full && opts.expand !== false && !isZhaopin() && !isHotjob() && !isPhoenix() && !is51job()) {
+    if (full && opts.expand !== false && !isZhaopin() && !isHotjob() && !isPhoenix() && !is51job() && !isModern51()) {
       await expandRecords(profile, region);
       entries = buildEntries(root, profile, mode);
     }
@@ -2898,7 +2919,7 @@
     }
 
     // Verify after blur/debounced validation; writing text alone is not a success.
-    if (isZhaopin() || isHotjob()) {
+    if (isZhaopin() || isHotjob() || isModern51()) {
       await wait(350);
       for (let i = log.length - 1; i >= 0; i--) {
         const entry = entries.find(e => e.el === log[i]._target &&
