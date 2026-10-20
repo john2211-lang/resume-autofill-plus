@@ -561,6 +561,13 @@
       return rec[field] == null ? '' : String(rec[field]);
     }
     if (type === 'edu') {
+      const gpa=String(rec.gpa || '').match(/(\d+(?:\.\d+)?)\s*[/／]\s*(\d+(?:\.\d+)?)/);
+      if(field==='gpaMax') return rec.gpaMax || (gpa ? gpa[2] : '');
+      if(field==='gpaScore') return rec.gpaScore || (gpa ? gpa[1] : (/^\d+(?:\.\d+)?$/.test(String(rec.gpa||''))?rec.gpa:''));
+      if(field==='fullTime') return rec.studyForm ? (/全日制/.test(rec.studyForm) && !/非全日制/.test(rec.studyForm) ? '是':'否') : '';
+      if(field==='majorLevel1') return rec.majorLevel1 || (/经济学/.test(rec.major||'') ? '经济学':'');
+      if(field==='majorLevel2') return rec.majorLevel2 || (rec.major==='经济学' && /本科/.test(rec.education||'') ? '经济学类':'');
+      if(field==='majorLevel3') return rec.majorLevel3 || rec.major || '';
       const find = pattern => {const key=Object.keys(rec).find(k=>pattern.test(String(k).replace(/\s/g,'')) && rec[k]);return key ? rec[key] : '';};
       const counselor = rec.counselorName || rec.counsellorName || rec.counselor || rec.counsellor || find(/辅导员(姓名|名字)?$/);
       const counselorPhone = rec.counselorPhone || rec.counsellorPhone || rec.counselorContact || find(/辅导员.*(联系方式|电话|手机)/);
@@ -571,6 +578,7 @@
     if (field === 'supervisorContact') return [rec.supervisor || rec.supervisorName, rec.supervisorPhone].filter(Boolean).join(' ');
     if (field === 'departmentPosition') return [rec.department, rec.position].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(' / ');
     if (field === 'workAchievements') return [valueFor(profile,type,'content',idx), rec.achievement].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join('\n');
+    if(type==='cert' && field==='otherName') return rec.otherName || rec.name || '';
     // 组合字段
     if (field === 'orgRole') return [rec.org, rec.role].filter(Boolean).join('｜');
     if (field === 'nameRole') return [rec.name, rec.role].filter(Boolean).join('｜');
@@ -1309,7 +1317,7 @@
   function phoenixDisplay(el) {
     const select=el.closest('.phoenix-select');
     if(!select) return '';
-    return txt(select.querySelector('.phoenix-select__tipEle')) || txt(select.querySelector('.phoenix-select__placeHolder:not(.phoenix-select__placeHolder--show)'));
+    return txt(select.querySelector('.phoenix-select__tipEle')) || txt(select.querySelector('.phoenix-select__singleValue')) || txt(select.querySelector('.phoenix-select__placeHolder:not(.phoenix-select__placeHolder--show)'));
   }
   function phoenixLayer(selector) {return [...document.querySelectorAll(selector)].filter(n=>!concealed(n) && visible(n)).at(-1);}
   async function fillPhoenixDate(el,value,label) {
@@ -1355,14 +1363,33 @@
     el.scrollIntoView?.({block:'center',behavior:'instant'});
     realClick(el);await wait(240);
     let layer;
-    for(let i=0;i<15;i++) {layer=phoenixLayer('.constant-main-selector-container,.area-selector-container');if(layer)break;await wait(80);}
+    for(let i=0;i<15;i++) {layer=phoenixLayer('.constant-main-selector-container,.area-selector-container,.phoenix-selectList');if(layer)break;await wait(80);}
     if(!layer){debug.strategies.push('no-layer');return {ok:false,debug};}
+    if(layer.matches('.phoenix-selectList')) {
+      const options=()=>{layer=phoenixLayer('.phoenix-selectList')||layer;return [...layer.querySelectorAll('.phoenix-selectList__listItem')].filter(n=>!concealed(n) && !/disabled/.test(n.className));};
+      const match=n=>aliasSet(wanted).includes(norm(txt(n))) || (label==='奖励级别' && norm(txt(n)).replace(/^取得/,'').replace(/荣誉奖励$/,'')===norm(wanted));
+      let hit=options().find(match);
+      if(!hit) {
+        const search=layer.querySelector('input');
+        if(search) {setNativeValue(search,wanted);for(let i=0;i<20;i++){await wait(100);hit=options().find(match);if(hit)break;}}
+      }
+      let otherCertificate=false;
+      if(!hit && label==='资格证书名称') {
+        const search=layer.querySelector('input');
+        if(search) {setNativeValue(search,'其他');await wait(240);hit=options().find(n=>/^(其他|其他（自填）|其他\(自填\))$/.test(txt(n)));otherCertificate=!!hit;}
+      }
+      if(!hit) {pressKey(el,'Escape');el.blur();debug.strategies.push('no-exact-list-option');return {ok:false,debug};}
+      realClick(hit);await wait(200);el.blur();await wait(100);
+      const current=phoenixDisplay(el) || el.value;
+      return {ok:(otherCertificate && /其他/.test(current)) || aliasSet(wanted).includes(norm(current)) || (label==='奖励级别' && norm(current).replace(/^取得/,'').replace(/荣誉奖励$/,'')===norm(wanted)),debug};
+    }
+
     const isRegion=/籍贯|户口所在地|现居住地|工作城市/.test(label);
     const v=isRegion?String(value).split(/[、,，;；]/)[0]:wanted;
     const clean=t=>cutAdmin(norm(t));
     const regionKey=t=>norm(t).replace(/[\/＞>]/g,'').replace(/特别行政区|维吾尔自治区|壮族自治区|回族自治区|自治区|省|市|区|县/g,'');
-    const candidates=()=>[...layer.querySelectorAll('.list-item-container,.area-item-container')].filter(n=>!concealed(n));
-    const hitOf=()=>candidates().find(n=>aliasSet(v).includes(norm(txt(n))) || (isRegion && clean(txt(n))===clean(v)));
+    const candidates=()=>{layer=phoenixLayer('.constant-main-selector-container,.area-selector-container')||layer;return [...layer.querySelectorAll('.list-item-container,.area-item-container')].filter(n=>!concealed(n));};
+    const hitOf=()=>candidates().find(n=>{const labelText=txt(n.querySelector('.item-text-label,.area-text-label')) || txt(n);return aliasSet(v).includes(norm(labelText)) || (isRegion && clean(labelText)===clean(v));});
     let hit=hitOf();
     if(!hit) {
       const search=layer.querySelector('input[placeholder="搜索"]');
@@ -1382,16 +1409,16 @@
       }
     }
     if(!hit) {
-      const cancel=[...layer.querySelectorAll('.selector-footer-button .phoenix-button,.area-footer-button .phoenix-button')].find(n=>txt(n)==='取消');if(cancel)realClick(cancel.querySelector('.phoenix-button__wraper')||cancel);
+      const cancel=[...layer.querySelectorAll('.phoenix-button')].find(n=>txt(n)==='取消');if(cancel)realClick(cancel.querySelector('.phoenix-button__wraper')||cancel);
       debug.strategies.push('no-candidate');
       return {ok:false,debug};
     }
-    if(!hit.querySelector('.RadioChecked,.CheckboxChecked') && !/selected|checked/.test(hit.className))realClick(hit.querySelector('.area-item-name')||hit);
+    if(!hit.querySelector('.RadioChecked,.CheckboxChecked,[class*="RadioChecked"],[class*="CheckboxChecked"]') && !/selected|checked/.test(hit.className))realClick(hit.querySelector('.icon-container')||hit.querySelector('.item-text-label,.area-item-name')||hit);
     await wait(100);
-    const confirm=[...layer.querySelectorAll('.selector-footer-button .phoenix-button,.area-footer-button .phoenix-button')].find(n=>txt(n)==='确定');
+    const confirm=[...layer.querySelectorAll('.phoenix-button')].find(n=>txt(n)==='确定');
     if(confirm)realClick(confirm.querySelector('.phoenix-button__wraper')||confirm);await wait(260);el.blur();
     const now=phoenixDisplay(el);
-    return {ok:aliasSet(v).includes(norm(now)) || (isRegion && regionKey(now).includes(regionKey(v))),debug};
+    return {ok:aliasSet(v).includes(norm(now)) || (isRegion && (regionKey(now).includes(regionKey(v)) || regionKey(v).endsWith(regionKey(now)) && regionKey(now).length>=2)),debug};
   }
 
   async function fillHotjob(el,value,label) {
@@ -2271,15 +2298,22 @@
         const label=norm(parts[0]);
         const maps={
           '家庭情况':['family',{'姓名':'name','与本人关系':'relation','工作单位':'company','联系电话':'phone','职务':'title'}],
-          '项目经历':['project',{'项目名称':'name','职务':'role','开始时间':'start','结束时间':'end','项目描述':'content'}],
+          '家庭主要成员':['family',{'称谓':'relation','姓名':'name','联系电话':'phone','职务':'title','工作单位':'company'}],
+          '项目经历':['project',{'项目名称':'name','职务':'role','开始时间':'start','结束时间':'end','项目描述':'content','项目中职责':'duty'}],
           '在校实践':['campus',{'实践名称':'org','开始时间':'start','结束时间':'end','实践描述':'description'}],
           '在校职务':['campus',{'职务名称':'role','开始时间':'start','结束时间':'end','职务描述':'description'}],
           '证书':['cert',{'证书名称':'name','获得时间':'date','证书描述':'description'}],
+          '专业技术职称或证书':['cert',{'资格证书名称':'name','其他证书名称':'otherName','获得时间':'date','证书描述':'description'}],
+          '荣誉奖励':['award',{'奖励级别':'level','获奖时间':'date','荣誉奖励名称':'name','荣誉奖励描述':'description'}],
+          '教育经历':['edu',{'学历':'education','学位':'degree','开始时间':'start','结束时间':'end','学校名称':'school','年级排名':'majorRank','学校满分绩点':'gpaMax','本人平均学分绩点gpa':'gpaScore','一级专业':'majorLevel1','二级专业':'majorLevel2','三级专业':'majorLevel3','专业名称':'major','专业':'major','学习形式':'studyForm','成绩gpa':'gpa'}],
           '语言能力':['extra',{'语言类型':'language','掌握程度':'languageLevel'}],
           '技能':['skill',{'技能名称':'name','掌握程度':'level'}]
         };
-        if(section==='附加问题') m=null;
-        else if(maps[section]) {const [type,fields]=maps[section];m=fields[label]?{type,field:fields[label],part:parts[0]}:null;}
+        if(section==='个人信息' && label==='最高学历研究方向') m={type:'edu',field:'direction',part:parts[0]};
+        else if(section==='个人信息' && label==='论文标题') m={type:'edu',field:'publicationTitle',part:parts[0]};
+        else if(section==='本人亲属在集团任职情况') m=null;
+        else if(section==='附加问题') m=null;
+        else if(maps[section]) {const [type,fields]=maps[section];m=fields[label]?{type,field:fields[label],part:parts[0]}:(section==='教育经历'?m:null);}
         else if(section==='求职意向' && /期望月薪/.test(label)) m={type:'job',field:'salary',part:parts[0]};
         else if(label==='现居住地') m={type:'basic',field:'currentPlace',part:parts[0]};
       }
@@ -2540,10 +2574,15 @@
         if(!forms.includes(form)) forms.push(form);
         groups.set(key,forms);e.idx=forms.indexOf(form);
       }
+      const chronological=/从第一学历填起/.test(document.body.textContent || '');
+      if(chronological) {
+        const order=(profile.educations||[]).map((r,i)=>({r,i})).sort((a,b)=>String(a.r.start||'').localeCompare(String(b.r.start||'')));
+        for(const e of entries) if(e.type==='edu' && e.section==='教育经历') e.idx=order[e.idx]?.i ?? (profile.educations||[]).length;
+      }
       // Phoenix radios have no native input; scan the actual visual groups.
       for(const group of root.querySelectorAll('.phoenix-radio-group')) {
         const section=sectionOf(group);const parts=labelParts(group);const label=norm(parts[0]);
-        const field=label==='性别'?'gender':label==='婚否'?'marriage':'';
+        const field=label==='性别'?'gender':/^(婚否|婚育状况)$/.test(label)?'marriage':'';
         if(field && section==='个人信息') entries.push({el:group,kind:'phoenixRadio',type:'basic',field,label:parts[0],section,idx:0,parts});
       }
     }
@@ -2701,7 +2740,7 @@
       entries.sort((a,b)=>(order[a.field] ?? 5)-(order[b.field] ?? 5));
     }
     for (let e of entries) {
-      if (isZhaopin() && !e.el.isConnected) {
+      if ((isZhaopin() || isPhoenix()) && !e.el.isConnected) {
         // Degree/education selects rebuild downstream inputs. Resolve the live control.
         const current=buildEntries(root,profile,mode).find(n=>n.type===e.type && n.field===e.field && n.idx===e.idx && (!region || inRegion(n.el,region)));
         if (current) e=current;
@@ -2723,7 +2762,7 @@
         if (!value) continue;
       }
       const label = e.label || e.field;
-      if (isZhaopin() && !isSuggestInput(e.el) && 'value' in e.el && aliasSet(value).includes(norm(e.el.value))) continue;
+      if ((isZhaopin() || isPhoenix()) && !isSuggestInput(e.el) && 'value' in e.el && aliasSet(value).includes(norm(e.el.value))) continue;
 
       if(is51job() && e.kind==='text' && e.el.matches('input[cname],textarea[cname]') && !e.el.readOnly) {
         const before=e.el.value;
@@ -2904,7 +2943,7 @@
       }
       const before = e.el.value;
       // 联想型字段（学校/公司/专业）先拍快照，写完值后好认出「新冒出来的候选列表」
-      const snap = SUGGEST_FIELDS.test(e.field) ? snapshotNodes() : null;
+      const snap = !isPhoenix() && SUGGEST_FIELDS.test(e.field) ? snapshotNodes() : null;
       e.el.focus();
       setNativeValue(e.el, v);
       let shown = v;
@@ -2990,7 +3029,25 @@
   }
 
   async function fillStable(profile, opts) {
-    if (!isZhaopin()) return fill(profile,opts);
+    if (!isZhaopin() && !isPhoenix()) return fill(profile,opts);
+    const satisfied=e=>{
+      const v=valueFor(profile,e.type,e.field,e.idx);if(!v)return false;
+      if(isPhoenix()) {
+        if(e.kind==='phoenixRadio')return [...e.el.querySelectorAll('.phoenix-radio--checked')].some(n=>aliasSet(v).includes(norm(txt(n))));
+        const shown=phoenixDisplay(e.el) || e.el.value || '';
+        if(/^(gpaMax|gpaScore)$/.test(e.field) && /^\d+(?:\.\d+)?$/.test(shown))return Number(shown)===Number(v);
+        if(e.kind==='datepicker') {const digits=digitsOf(shown);return digits.length>=6 && digitsOf(v).startsWith(digits);}
+        if(/籍贯|户口所在地|现居住地|工作城市/.test(e.label)) {
+          const key=t=>norm(t).replace(/[\/＞>]/g,'').replace(/特别行政区|维吾尔自治区|壮族自治区|回族自治区|自治区|省|市|区|县/g,'');
+          const wanted=key(String(v).split(/[、,，;；]/)[0]),actual=key(shown);
+          return actual.length>=2 && (actual.includes(wanted) || wanted.endsWith(actual));
+        }
+        if(e.label==='资格证书名称' && /其他/.test(shown))return true;
+        if(e.label==='奖励级别')return norm(shown).replace(/^取得/,'').replace(/荣誉奖励$/,'')===norm(v);
+        return aliasSet(v).includes(norm(shown));
+      }
+      return 'value' in e.el && aliasSet(v).includes(norm(e.el.value));
+    };
     const results=[];
     const started=performance.now();
     for(let pass=0;pass<3;pass++) {
@@ -2999,15 +3056,14 @@
       const root=(opts && opts.root) || document;
       const pending=buildEntries(root,profile,'enhanced').filter(e=>!concealed(e.el) && (!opts?.rect || inRegion(e.el,opts.rect))).filter(e=>{
         const value=valueFor(profile,e.type,e.field,e.idx);
-        return value && 'value' in e.el && (!aliasSet(value).includes(norm(e.el.value)) || (e.field==='school' && isSuggestInput(e.el) && confirmedZhaopin.get(e.el)!==String(value)));
+        return value && ((!satisfied(e)) || (isZhaopin() && e.field==='school' && isSuggestInput(e.el) && confirmedZhaopin.get(e.el)!==String(value)));
       });
-      if(pass>=1 && !pending.length) break;
+      if((isPhoenix() || pass>=1) && !pending.length) break;
     }
     const latest=results[results.length-1];
     const logs=new Map();
     results.forEach(r=>r.log.forEach(item=>logs.set(item.label+'|'+item.value,item)));
     const finalEntries=buildEntries((opts && opts.root)||document,profile,'enhanced').filter(e=>!concealed(e.el) && (!opts?.rect || inRegion(e.el,opts.rect)));
-    const satisfied=e=>{const v=valueFor(profile,e.type,e.field,e.idx);return v && 'value' in e.el && aliasSet(v).includes(norm(e.el.value));};
     const complete=new Set(finalEntries.filter(satisfied).map(e=>e.label));
     const log=[...logs.values()].filter(item=>complete.has(item.label));
     const noData=finalEntries.filter(e=>!valueFor(profile,e.type,e.field,e.idx)).map(e=>e.label+'（第'+(e.idx+1)+'条）');
