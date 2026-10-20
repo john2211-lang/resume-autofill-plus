@@ -96,7 +96,7 @@
   function toast(msg, ms) {
     const host = TT.host;
     if (!host) return null;
-    let t = host.querySelector('.tt-toast');
+    let t = host.querySelector('.toast');
     if (t) t.remove();
     t = h('div', { class: 'toast' });
     t.innerHTML = msg;
@@ -198,7 +198,7 @@
     const card = h('div', { class: 'card' });
     const head = h('div', { class: 'head' });
     head.appendChild(h('div', { class: 'dot' }));
-    head.appendChild(h('div', { class: 'title', text: '网申速填 1.1.13' }));
+    head.appendChild(h('div', { class: 'title', text: '网申速填 1.1.16' }));
     const minBtn = h('button', { class: 'mini', title: '收起', text: '—' });
     minBtn.addEventListener('click', () => {
       state.open = false;
@@ -235,6 +235,10 @@
     const b3 = h('button', { class: 'btn ghost small', text: '选区填入（框选后选类别）' });
     b3.addEventListener('click', startRegionSelect);
     card.appendChild(b3);
+    const stopButton=h('button',{class:'btn ghost',text:'停止填写'});
+    stopButton.style.color='#c23b31';
+    stopButton.addEventListener('click',stopFill);
+    card.appendChild(stopButton);
 
     const foot = h('div', { class: 'foot' });
     const hist = h('button', { class: 'btn', text: '填写记录' });
@@ -315,17 +319,13 @@
       retry.addEventListener('click', async () => {
         retry.disabled = true;
         retry.textContent = '正在重试…';
-        let ok = 0;
-        for (const s of retryable) {
-          try {
-            if (await TT.engine.retryPicker(s.el, s.value, s.label, state.profile)) ok++;
-          } catch (e) {}
-          await new Promise((r) => setTimeout(r, 120));
-        }
-        toast(ok ? '重试成功 <b>' + ok + '</b> 项' : '还是没选上，可手动点一下', 3000);
-        state.last.skipped = state.last.skipped.filter((s) => retryable.indexOf(s) < 0);
-        state.last.filled += ok;
-        d.remove();
+        if(state.fillPromise){retry.disabled=false;toast('请先停止或等待当前填写',2200);return;}
+        state.stopRequested=false;
+        const job=TT.engine.retryBatch(retryable,state.profile);state.fillPromise=job;
+        try {const ok=await job;toast('重试成功 '+ok+' 项',3000);d.remove();}
+        catch(e){toast(e.name==='AbortError'?'已停止填写，保留已填内容':'重试失败：'+e.message,3000);}
+        finally {state.fillPromise=null;retry.disabled=false;retry.textContent='重试没填上的 '+retryable.length+' 项';}
+
       });
       bar0.appendChild(retry);
       d.appendChild(bar0);
@@ -421,8 +421,16 @@
     host.appendChild(d);
   }
 
+  function stopFill() {
+    if(!state.fillPromise){toast('当前没有正在进行的填写',1800);return;}
+    state.stopRequested=true;TT.engine.stop();
+    if(state.cleanupProgress)state.cleanupProgress();
+    toast('已停止填写，保留已填内容',2600);
+  }
+
   function doFill(mode, rect, force) {
     if (state.fillPromise) {toast('正在填写，请等待完成后再操作',2200); return state.fillPromise;}
+    state.stopRequested=false;
     const job = Promise.resolve().then(()=>performFill(mode,rect,force));
     state.fillPromise = job.finally(()=>{state.fillPromise=null;});
     return state.fillPromise;
@@ -430,6 +438,7 @@
 
   async function performFill(mode, rect, force) {
     await loadProfile();
+    if(state.stopRequested)return;
     if (!state.profile) {
       toast('还没有简历资料，<a>点这里录入</a>', 6000);
       const a = TT.host.querySelector('.toast a');
@@ -440,8 +449,15 @@
     const tip = toast('正在填写并等待网页更新，请等待完成… <b>0 秒</b>');
     const timer = setInterval(() => {
       const s = ((performance.now() - t0) / 1000).toFixed(0);
-      if (tip && tip.isConnected) tip.innerHTML = '正在填写并等待网页更新，请等待完成… <b>' + s + ' 秒</b>';
+      if (tip && tip.isConnected) progressText.textContent = '正在填写并等待网页更新… '+s+' 秒';
     }, 400);
+    const stopButton=h('button',{text:'停止填写'});
+    stopButton.style.cssText='margin-left:12px;cursor:pointer;color:#a22;background:white;border:0;border-radius:4px;padding:4px 8px';
+    stopButton.addEventListener('click',stopFill);
+    // The timer updates only the text, keeping the stop control clickable.
+    const progressText=h('span',{text:'正在填写并等待网页更新… 0 秒'});
+    if(tip)tip.replaceChildren(progressText,stopButton);
+    const cleanup=()=>{clearInterval(timer);if(tip)tip.remove();};state.cleanupProgress=cleanup;
     try {
       const res = await TT.engine.fill(state.profile, Object.assign({ mode, rect }, force || {}));
       clearInterval(timer);
@@ -466,10 +482,10 @@
       return res;
     } catch (e) {
       clearInterval(timer);
-      toast('填写出错：' + (e && e.message ? e.message : e), 4000);
-      console.error('[网申速填]', e);
+      toast(e.name==='AbortError'?'已停止填写，保留已填内容':'填写出错：' + (e && e.message ? e.message : e), 4000);
+      if(e.name!=='AbortError')console.error('[网申速填]', e);
       return null;
-    }
+    } finally {cleanup();if(state.cleanupProgress===cleanup)state.cleanupProgress=null;}
   }
 
   /* 选区填入：拖出一个矩形，只填这个区域里的字段 */

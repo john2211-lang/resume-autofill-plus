@@ -1,0 +1,15 @@
+const fs=require('fs'),path=require('path'),assert=require('assert/strict'),{JSDOM}=require('jsdom');
+const engine=fs.readFileSync(path.join(__dirname,'../content/engine.js'),'utf8');
+function setup(){const w=new JSDOM('<form class="el-form"><div class="el-form-item"><label class="el-form-item__label">学历</label><div class="el-form-item__content"><div class="el-select"><input readonly></div></div></div><div class="el-form-item"><label class="el-form-item__label">学校名称</label><div class="el-form-item__content"><input id="school"></div></div></form>',{url:'https://xiaoyuan.zhaopin.com/scrd/resume2',runScripts:'outside-only',pretendToBeVisual:true}).window;w.eval(fs.readFileSync(path.join(__dirname,'../content/rules.js'),'utf8'));w.eval(engine);return w;}
+const profile={basic:{name:'测试'},educations:[{school:'不得继续写入',education:'本科'}]};
+(async()=>{
+for(const mode of ['basic','enhanced','region']){const w=setup(),e=w.__TT__.engine;const job=e.fill(profile,{mode});setTimeout(()=>e.stop(),30);await assert.rejects(job,{name:'AbortError'});assert.equal(w.document.querySelector('#school').value,'');assert.equal(e.stop(),false);console.log('PASS '+mode+'停止等待并阻止后续字段和补填');w.close();}
+{const w=setup(),e=w.__TT__.engine;const job=e.fill(profile,{});setTimeout(()=>w.history.pushState({},'','?next=1'),30);await assert.rejects(job,{name:'AbortError'});assert.equal(w.document.querySelector('#school').value,'');console.log('PASS URL改变自动停止旧任务');w.close();}
+{const w=setup(),e=w.__TT__.engine;const job=e.fill(profile,{});setTimeout(()=>e.stop(),20);await assert.rejects(job);const second=e.fill({educations:[]},{});await second;console.log('PASS 停止后可重新启动任务');w.close();}
+{const w=setup(),e=w.__TT__.engine;const job=e.retryBatch([{el:w.document.querySelector('input'),value:'本科',label:'学历'}],profile);setTimeout(()=>e.stop(),20);await assert.rejects(job,{name:'AbortError'});console.log('PASS 重试批次也能中断且不继续下一个字段');w.close();}
+for(const fail of [false,true]){
+const w=new JSDOM('<body>',{url:'https://example.com',runScripts:'outside-only',pretendToBeVisual:true}).window;let reject;
+w.chrome={storage:{local:{get:async()=>({tt_profile:profile,tt_hidden:[]}),set:async()=>{}}},runtime:{sendMessage:()=>{}}};
+w.__TT__={engine:{fill:()=>new Promise((resolve,r)=>{reject=r;if(fail)setTimeout(()=>r(new Error('模拟失败')),10)}),stop:()=>{const e=new Error('停止');e.name='AbortError';reject(e);}}};
+w.eval(fs.readFileSync(path.join(__dirname,'../content/panel.js'),'utf8'));await w.__TT__.mountPanel();const job=w.__TT__.panel.doFill('basic');await new Promise(r=>setTimeout(r,5));if(!fail){const stop=[...w.__TT__.host.querySelectorAll('button')].find(b=>b.textContent==='停止填写');assert.ok(stop);stop.click();}await job;assert.equal(w.__TT__.panel.state.fillPromise,null);assert.ok(!w.__TT__.host.textContent.includes('正在填写并等待'));await new Promise(r=>setTimeout(r,450));assert.ok(!w.__TT__.host.textContent.includes('正在填写并等待'));console.log('PASS '+(fail?'异常':'手动停止')+'清理倒计时并释放运行状态');w.close();}
+})().catch(e=>{console.error(e);process.exitCode=1});

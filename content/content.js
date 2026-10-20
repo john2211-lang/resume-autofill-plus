@@ -32,7 +32,7 @@
     }
     if (msg.type === 'TT_PING') {
       const n = TT.engine ? TT.engine.buildEntries(document, TT.panel.state.profile || {}, 'enhanced').length : 0;
-      sendResponse({ ok: true, fields: n, version: '1.1.13' });
+      sendResponse({ ok: true, fields: n, version: '1.1.16' });
       return true;
     }
     if (msg.type === 'TT_TOGGLE_PANEL') {

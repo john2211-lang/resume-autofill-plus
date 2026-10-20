@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "网申速填 Plus",
-  "version": "1.1.13",
+  "version": "1.1.16",
   "description": "本地简历填表助手：保留通用/北森引擎，改进智联招聘字段隔离和经历填写。",
   "permissions": [
     "storage",
@@ -59,5 +59,5 @@
       ]
     }
   ],
-  "version_name": "1.1.13 智联自定义家庭表单修正"
+  "version_name": "1.1.16 蓝月亮学历下拉修正"
 }

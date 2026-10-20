@@ -2,6 +2,98 @@
 (function () {
   const TT = (window.__TT__ = window.__TT__ || {});
 
+  let activeRun = null;
+  function stopError() { const e=new Error('填写已停止');e.name='AbortError';return e; }
+  function checkRun() {
+    if(activeRun && (activeRun.stopped || activeRun.url!==location.href)) throw stopError();
+  }
+  function stop() {
+    if(!activeRun)return false;
+    activeRun.stopped=true;
+    for(const wake of [...activeRun.waiters])wake();
+    return true;
+  }
+  async function runTask(task) {
+    if(activeRun)throw new Error('上次填写尚未结束');
+    const run={stopped:false,url:location.href,waiters:new Set()};activeRun=run;
+    const limit=setTimeout(stop,120000);
+    const navigate=event=>{
+      const n=event.target && event.target.closest && event.target.closest('button,a,input[type=button],input[type=submit]');
+      if(event.isTrusted && n && /下一步|下一页|上一步|上一页|提交|投递/.test(n.innerText || n.value || n.textContent || ''))stop();
+    };
+    document.addEventListener('click',navigate,true);
+    window.addEventListener('pagehide',stop);window.addEventListener('popstate',stop);window.addEventListener('hashchange',stop);
+    try {checkRun();const result=await task();checkRun();return result;}
+    finally {
+      clearTimeout(limit);document.removeEventListener('click',navigate,true);
+      window.removeEventListener('pagehide',stop);window.removeEventListener('popstate',stop);window.removeEventListener('hashchange',stop);
+      if(activeRun===run)activeRun=null;
+    }
+  }
+
+  // Universe/Formily: scope to the inspected Blue Moon host and explicit field metadata.
+  const isUniverse = () => /(^|\.)career\.bluemoon\.com\.cn$/i.test(location.hostname) && !!document.querySelector('.ud-formily-item');
+  function universeEntries(root) {
+    const fields={name:['basic','name'],email:['basic','email'],current_city:['basic','currentCity'],preferred_city_list:['job','city'],school:['edu','school'],degree:['edu','education'],field_of_study:['edu','major'],education_type:['edu','studyForm']};
+    const out=[];
+    for(const item of root.querySelectorAll('.ud-formily-item[data-form-field-id]')) {
+      if(concealed(item))continue;
+      const key=item.getAttribute('data-form-field-id');
+      const controls=[...item.querySelectorAll('input,textarea,select')].filter(el=>el.closest('.ud-formily-item[data-form-field-id]')===item && !el.disabled && !/^(hidden|file|radio|checkbox|password|submit|button)$/.test(el.type));
+      let spec=fields[key];
+      if(key==='start_end_time')spec=['edu','start'];
+      if(!spec || !controls.length)continue;
+      const card=item.closest('[class*="apply-form-array-card__"]');
+      const cards=card ? [...root.querySelectorAll('[class*="apply-form-array-card__"]')].filter(n=>n.querySelector('[data-form-field-id="school"]')) : [];
+      const idx=spec[0]==='edu' && card ? Math.max(0,cards.indexOf(card)) : 0;
+      const label=item.getAttribute('data-form-field-i18n-name') || key;
+      const count=key==='start_end_time'?Math.min(2,controls.length):1;
+      for(let i=0;i<count;i++)out.push({el:controls[i],type:spec[0],field:key==='start_end_time'?(i?'end':'start'):spec[1],label:key==='start_end_time'?(i?'结束时间':'开始时间'):label,section:spec[0]==='edu'?'教育经历':spec[0]==='job'?'求职意向':'基本信息',kind:key==='start_end_time'?'udDate':controls[i].closest('.ud__select') && key!=='school'?'udPicker':'text',idx,occ:idx,parts:[label],ud:true});
+    }
+    return out;
+  }
+  function universeShown(el) {
+    const shell=el.closest('.ud__select');
+    if(!shell)return el.value || '';
+    const values=[...shell.querySelectorAll('.ud__select__selector__selectItem,.ud__select__selector__tag,.ud__select__selector__selection-item,.ud__select__selector__selected-item,.ud__select__selector__value,.ud__tag,[class*="selection-item"],[class*="selectedItem"]')].map(txt).filter(Boolean);
+    return values.join('、') || (shell.querySelector('.ud__select__selector__content')?.textContent || '').trim();
+  }
+  function universeAliases(e,value) {
+    const aliases=aliasSet(value);
+    if(e.field==='studyForm') {
+      if(norm(value)==='全日制')aliases.push(norm('统招全日制'));
+      if(norm(value)==='非全日制')aliases.push(norm('统招非全日制'));
+    }
+    return aliases;
+  }
+  async function fillUniverse(e,value) {
+    checkRun();const el=e.el;
+    if(e.kind!=='udPicker') {
+      const v=e.kind==='udDate'?String(value).match(/^\d{4}[-/.]\d{1,2}/)?.[0].replace(/[/.]/g,'-'):String(value);
+      if(!v)return false;
+      el.focus();setNativeValue(el,v);fire(el,'blur');fire(el,'focusout');el.blur();await wait(300);
+      return el.isConnected && (e.kind==='udDate'?digitsOf(el.value)===digitsOf(v):el.value===v);
+    }
+    // Never treat typed search text as a committed selection.
+    const target=String(value).split(/[、,，;；]/)[0].trim();
+    const aliases=universeAliases(e,target);
+    const city=e.field==='city'||e.field==='currentCity';
+    const match=t=>aliases.includes(norm(t)) || (city && cutAdmin(norm(t))===cutAdmin(norm(target)));
+    if(match(universeShown(el)))return true;
+    realClick(el.closest('.ud__select__selector') || el);await wait(180);
+    const popup=()=>[...document.querySelectorAll('.ud__select__dropdown')].filter(n=>!n.classList.contains('ud__select__dropdown-hidden') && !concealed(n)).at(-1);
+    const options=()=>{const p=popup();return p?[...p.querySelectorAll('[role="option"],.ud__select__list__item,.ud__select__option,.ud__select__dropdown__option,.ud__tree__node__label')].filter(n=>!concealed(n) && !n.matches('.ud__select__list__item-disabled,[aria-disabled="true"],[disabled]')):[];};
+    let hit=options().find(n=>match(txt(n)));
+    if(!hit){if(!el.readOnly)setNativeValue(el,city?cutAdmin(target):target);for(let i=0;i<20;i++){await wait(100);hit=options().find(n=>match(txt(n)));if(hit)break;}}
+    if(!hit){pressKey(el,'Escape');el.blur();return false;}
+    const tree=hit.closest('.ud__tree__node');
+    const checkbox=tree?.querySelector('input[type="checkbox"]');
+    if(checkbox && checkbox.getAttribute('aria-checked')!=='true')realClick(tree.querySelector('.ud__tree__node__checkbox') || hit);
+    else if(!checkbox)realClick(hit);
+    await wait(180);pressKey(el,'Escape');el.blur();await wait(160);
+    return match(universeShown(el));
+  }
+
   const SKIP_INPUT_TYPES = /^(hidden|submit|button|reset|image|file|password|search)$/i;
 
   const isZhaopin = () => /(^|\.)zhaopin\.com$/i.test(location.hostname);
@@ -122,7 +214,7 @@
       try {
         const l = document.querySelector('label[for="' + CSS.escape(el.id) + '"]');
         if (l) push(txt(l));
-      } catch (e) {}
+      } catch (e) { if (e && e.name==='AbortError') throw e;}
     }
     const wrapLabel = el.closest('label');
     if (wrapLabel) push(txt(wrapLabel));
@@ -345,7 +437,7 @@
       try {
         hit = rule.re.test(compact);
         if (!hit && sec && CROSS_RE.test(rule.re.source)) hit = rule.re.test(sec + compact);
-      } catch (e) {
+      } catch (e) { if (e && e.name==='AbortError') throw e;
         hit = false;
       }
       if (!hit) continue;
@@ -385,7 +477,7 @@
       try {
         hit = rule.re.test(compact);
         if (!hit && sec && CROSS_RE.test(rule.re.source)) hit = rule.re.test(sec + compact);
-      } catch (e) {
+      } catch (e) { if (e && e.name==='AbortError') throw e;
         hit = false;
       }
       if (!hit) continue;
@@ -699,10 +791,12 @@
 
   /* ---------------- 写入 ---------------- */
   function fire(el, type) {
+    checkRun();
     el.dispatchEvent(new Event(type, { bubbles: true }));
   }
 
   function setNativeValue(el, value) {
+    checkRun();
     const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
     const desc = Object.getOwnPropertyDescriptor(proto, 'value');
     if (desc && desc.set) desc.set.call(el, value);
@@ -803,6 +897,7 @@
 
   /* React/Vue 组件常常只认完整鼠标事件序列，用原生 click 不生效 */
   function realClick(el) {
+    checkRun();
     if (!el || !el.dispatchEvent) return;
     try {
       const r = el.getBoundingClientRect();
@@ -813,14 +908,15 @@
       for (const t of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
         el.dispatchEvent(new MouseEvent(t, o));
       }
-    } catch (e) {
+    } catch (e) { if (e && e.name==='AbortError') throw e;
       try {
         el.click();
-      } catch (e2) {}
+      } catch (e2) { if (e2 && e2.name==='AbortError') throw e2;}
     }
   }
 
   function setSelect(select, value) {
+    checkRun();
     const usable = [...select.options].filter((o) => !o.disabled && String(o.value) !== '');
     const opts = usable.map((o) => ({
       text: txt(o) || o.textContent || '',
@@ -861,7 +957,7 @@
       const desc = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
       if (desc && desc.set) desc.set.call(select, hit.value);
       else select.value = hit.value;
-    } catch (e) {
+    } catch (e) { if (e && e.name==='AbortError') throw e;
       select.value = hit.value;
     }
     fire(select, 'input');
@@ -870,7 +966,15 @@
     return true;
   }
 
-  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const wait = (ms) => {
+    checkRun();const run=activeRun;
+    return new Promise((resolve,reject)=>{
+      let timer;
+      const done=()=>{clearTimeout(timer);if(run)run.waiters.delete(done);
+        if(run && (run.stopped || run.url!==location.href))reject(stopError());else resolve();};
+      timer=setTimeout(done,ms);if(run)run.waiters.add(done);
+    });
+  };
 
   /* ---------- 自定义下拉 / 日期选择器（不依赖具体组件库）---------- */
 
@@ -938,7 +1042,7 @@
     const s = new Set();
     try {
       for (const n of document.querySelectorAll('body *')) s.add(n);
-    } catch (e) {}
+    } catch (e) { if (e && e.name==='AbortError') throw e;}
     return s;
   }
 
@@ -949,7 +1053,7 @@
     let nodes;
     try {
       nodes = document.querySelectorAll('body *');
-    } catch (e) {
+    } catch (e) { if (e && e.name==='AbortError') throw e;
       return [];
     }
     for (const r of nodes) {
@@ -975,7 +1079,7 @@
             const horiz = rr.left < tr.right + 120 && rr.right > tr.left - 120;
             nearBox = vert && horiz && r.childElementCount >= 2 && r.querySelectorAll('*').length <= 260;
           }
-        } catch (e) {}
+        } catch (e) { if (e && e.name==='AbortError') throw e;}
       }
       if (!isFresh && !strict && !loose && !nearBox) continue;
       if (r === trigger || r.contains(trigger)) continue; // 整页容器，不是弹层
@@ -1105,6 +1209,7 @@
 
   /* 点一个选项，用「显示值有没有变」判断是否真的选上；没变就换更"重"的点击方式 */
   async function clickOption(trigger, optEl) {
+    checkRun();
     if (!optEl || !optEl.isConnected) return false;
     const before = shownValue(trigger);
     const want = norm(txt(optEl));
@@ -1132,7 +1237,7 @@
       optEl.dispatchEvent(new MouseEvent('click', o));
       await wait(110);
       if (shownValue(trigger) !== before) return true;
-    } catch (e) {}
+    } catch (e) { if (e && e.name==='AbortError') throw e;}
 
     // 再试它里面的文字节点
     const inner = optEl.querySelector('span,label,p,em');
@@ -1177,10 +1282,11 @@
 
   /* 键盘兜底：输入关键字 -> 下移 -> 回车（可搜索的下拉都认这个） */
   async function keyboardPick(el, v) {
+    checkRun();
     const before = shownValue(el);
     try {
       el.focus();
-    } catch (e) {}
+    } catch (e) { if (e && e.name==='AbortError') throw e;}
     if (el.tagName === 'INPUT' && !el.readOnly) {
       setNativeValue(el, v);
       await wait(160);
@@ -1199,7 +1305,7 @@
     for (const t of ['keydown', 'keyup']) {
       try {
         el.dispatchEvent(new KeyboardEvent(t, { key, code: key, keyCode: code, which: code, bubbles: true }));
-      } catch (e) {}
+      } catch (e) { if (e && e.name==='AbortError') throw e;}
     }
   }
 
@@ -1264,7 +1370,7 @@
           setNativeValue(inp, v);
           fire(inp, 'input');
           fire(inp, 'keyup');
-        } catch (e) {}
+        } catch (e) { if (e && e.name==='AbortError') throw e;}
         await wait(240);
         return 'popup';
       }
@@ -1275,7 +1381,7 @@
         setNativeValue(el, v);
         fire(el, 'input');
         fire(el, 'keyup');
-      } catch (e) {}
+      } catch (e) { if (e && e.name==='AbortError') throw e;}
       await wait(240);
       return 'self';
     }
@@ -1331,6 +1437,7 @@
     return txt(select.querySelector('.phoenix-select__tipEle')) || [...select.querySelectorAll('.phoenix-select__tag')].map(txt).filter(Boolean).join('、') || txt(select.querySelector('.phoenix-select__singleValue')) || txt(select.querySelector('.phoenix-select__placeHolder:not(.phoenix-select__placeHolder--show)'));
   }
   function phoenixChoose(node) {
+    checkRun();
     if(!node)return;
     // A mousedown outside-handler may unmount the portal before its click callback.
     // Dispatch only activation on the exact icon/content node, leaving focus alone.
@@ -2074,7 +2181,7 @@
         pressKey(el, 'Escape');
         return true;
       }
-    } catch (e) {}
+    } catch (e) { if (e && e.name==='AbortError') throw e;}
     if (wasRO) el.setAttribute('readonly', '');
 
     // 2) 点开面板逐级点选。先按控件粒度试，不行再换个粒度重试一轮，
@@ -2216,6 +2323,7 @@
 
   /* 计算某个字段属于第几条记录 */
   function buildEntries(root, profile, modes) {
+    if(isUniverse())return universeEntries(root);
     const { controls, radioGroups } = collectControls(root);
     const entries = [];
     const seenFieldCount = {};
@@ -2734,10 +2842,10 @@
     const started = performance.now();
     const root = opts.root || document;
     const region = opts.rect || null;
-    const full = mode === 'enhanced' || mode === 'region' || isZhaopin() || isHotjob() || isPhoenix() || is51job() || isModern51();
+    const full = isUniverse() || mode === 'enhanced' || mode === 'region' || isZhaopin() || isHotjob() || isPhoenix() || is51job() || isModern51();
 
     let entries = buildEntries(root, profile, mode);
-    if (full && opts.expand !== false && !isZhaopin() && !isHotjob() && !isPhoenix() && !is51job() && !isModern51()) {
+    if (full && !isUniverse() && opts.expand !== false && !isZhaopin() && !isHotjob() && !isPhoenix() && !is51job() && !isModern51()) {
       await expandRecords(profile, region);
       entries = buildEntries(root, profile, mode);
     }
@@ -2764,7 +2872,8 @@
       entries.sort((a,b)=>(order[a.field] ?? 5)-(order[b.field] ?? 5));
     }
     for (let e of entries) {
-      if ((isZhaopin() || isPhoenix()) && !e.el.isConnected) {
+      checkRun();
+      if ((isZhaopin() || isPhoenix() || isUniverse()) && !e.el.isConnected) {
         // Degree/education selects rebuild downstream inputs. Resolve the live control.
         const current=buildEntries(root,profile,mode).find(n=>n.type===e.type && n.field===e.field && n.idx===e.idx && (!region || inRegion(n.el,region)));
         if (current) e=current;
@@ -2774,6 +2883,12 @@
       let value = valueFor(profile, e.type, e.field, e.idx);
       if (value === '' || value == null) {
         noData.push((e.label || e.field) + '（' + e.type + '.' + e.field + ' 第' + (e.idx + 1) + '条）');
+        continue;
+      }
+      if(e.ud) {
+        const before=e.el.value;
+        if(await fillUniverse(e,value)) {log.push({_target:e.el,label:e.label,value:String(value)});filled++;if(e.kind==='text')undoStack.push({el:e.el,kind:'text',before});}
+        else skipped.push({label:e.label,value,el:e.el,reason:e.kind==='udPicker'?'未确认下拉选择，请手动选择后重试':'输入后未保留，请手动核对'});
         continue;
       }
       if (isHotjob() && e.regionPart != null) {
@@ -2993,6 +3108,18 @@
         }
       }
     }
+    if(isUniverse()) {
+      await wait(250);
+      const live=universeEntries(root);
+      for(let i=log.length-1;i>=0;i--) {
+        const old=entries.find(e=>e.el===log[i]._target);if(!old)continue;
+        const e=live.find(n=>n.type===old.type && n.field===old.field && n.idx===old.idx);
+        const v=String(valueFor(profile,old.type,old.field,old.idx));
+        const shown=e?(e.kind==='udPicker'?universeShown(e.el):e.el.value):'';
+        const ok=shown && (e.kind==='udDate'?digitsOf(v).startsWith(digitsOf(shown)):e.kind==='udPicker'?(universeAliases(e,v.split(/[、,，;；]/)[0]).includes(norm(shown)) || (/^(city|currentCity)$/.test(e.field) && cutAdmin(norm(v.split(/[、,，;；]/)[0]))===cutAdmin(norm(shown)))):shown===v);
+        if(!ok){skipped.push({label:old.label,value:v,el:e?.el,reason:'网页更新后未保留预期值'});log.splice(i,1);filled--;}
+      }
+    }
     for (const item of log) delete item._target;
     const ms = Math.round(performance.now() - started);
     const undo = () => {
@@ -3011,7 +3138,7 @@
             u.el.innerText = u.before;
             fire(u.el, 'input');
           }
-        } catch (err) {}
+        } catch (err) { if (err && err.name==='AbortError') throw err;}
       }
       return undoStack.length;
     };
@@ -3039,6 +3166,7 @@
   /* 面板上的「重试没填上的」用：重新点开、等更久、再试一遍 */
   async function retryPicker(el, value, label, profile) {
     if (!el || !el.isConnected) return false;
+    if(isUniverse()){const e=universeEntries(document).find(n=>n.el===el);return e?fillUniverse(e,value):false;}
     // 日期 / 月份控件走另一条路，别当普通下拉重试
     if (isDatePickerish(el, label)) {
       if (await fillDatePicker(el, value, label || '')) return true;
@@ -3075,6 +3203,7 @@
     const results=[];
     const started=performance.now();
     for(let pass=0;pass<3;pass++) {
+      checkRun();
       const result=await fill(profile,{...(opts || {}),expand:false}); results.push(result);
       await wait(650);
       const root=(opts && opts.root) || document;
@@ -3097,7 +3226,9 @@
   }
 
   TT.engine = {
-    fill: fillStable, buildEntries, valueFor, labelParts, sectionOf, visible,
+    fill: (profile,opts)=>runTask(()=>fillStable(profile,opts)), stop,
+    retryBatch: (items,profile)=>runTask(async()=>{let ok=0;for(const s of items){checkRun();if(await retryPicker(s.el,s.value,s.label,profile))ok++;await wait(120);}return ok;}),
+    buildEntries, valueFor, labelParts, sectionOf, visible,
     _typeToFilter: typeToFilter,
     popupOptions, fillPicker, retryPicker, inferFieldByOptions,
     previewRegion, remapEntries, mirrorField,
