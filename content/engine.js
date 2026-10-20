@@ -523,6 +523,15 @@
     return String(a);
   }
 
+  function familyRelationPair(relation,gender) {
+    const r=norm(relation),g=norm(gender),male=/^(男|男性|male|m)$/.test(g),female=/^(女|女性|female|f)$/.test(g);
+    if(/^(丈夫|妻子|配偶|夫妻)$/.test(r))return '夫妻';
+    if(/^(外祖父|外祖母|外公|外婆)$/.test(r))return '外祖孙';
+    if(/^(祖父|祖母|爷爷|奶奶)$/.test(r))return '祖孙';
+    if(!male && !female)return '';
+    const pairs={'父亲':male?'父子':'父女','母亲':male?'母子':'母女','哥哥':male?'兄弟':'兄妹','弟弟':male?'兄弟':'姐弟','姐姐':male?'姐弟':'姐妹','妹妹':male?'兄妹':'姐妹'};
+    return pairs[r] || relation || '';
+  }
   function valueFor(profile, type, field, idx) {
     const basic = profile.basic || {};
     const job = profile.job || {};
@@ -558,6 +567,7 @@
     if ((isZhaopin() || isHotjob() || isPhoenix()) && idx >= list.length) return '';
     const rec = list[idx] || {};
     if (type === 'family') {
+      if(field==='relationPair')return familyRelationPair(rec.relation,basic.gender);
       if(field === 'occupation') return [rec.company || rec.school,rec.title || rec.position].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(' / ');
       return rec[field] == null ? '' : String(rec[field]);
     }
@@ -2340,10 +2350,15 @@
         if (fields[label]) m = {type:'edu',field:fields[label],part:parts[0]};
       }
       if (isZhaopin() && /家庭|家属|亲属/.test(section)) {
-        const fields={'姓名':'name','成员姓名':'name','家庭成员姓名':'name','与本人关系':'relation','关系':'relation','称谓':'relation','工作单位':'company','单位名称':'company','所在单位':'company','职务':'title','职位':'title','联系电话':'phone','手机号码':'phone','手机号':'phone','出生日期':'birth','政治面貌':'politics','现居住地':'location'};
+        const fields={'姓名':'name','成员姓名':'name','家庭成员姓名':'name','与本人关系':'relation','关系':'relation','称谓':'relation','工作单位':'company','单位名称':'company','所在单位':'company','职务':'title','职位':'title','联系电话':'phone','手机号码':'phone','手机号':'phone','出生日期':'birth','出生年月':'birth','政治面貌':'politics','家庭成员政治面貌':'politics','工作单位及岗位':'occupation','工作单位及职务':'occupation','现居住地':'location'};
         const label=norm(parts[0]);
         if (fields[label]) m={type:'family',field:fields[label],part:parts[0]};
         else m=null; // Do not fall back to the applicant or internship inside a family form.
+      }
+      if(isZhaopin() && m?.type==='family' && m.field==='relation') {
+        const select=el.closest('.el-select');
+        const labels=select ? [...select.querySelectorAll('.el-select-dropdown__item')].map(n=>norm(txt(n))) : [];
+        if(labels.includes('父子') && labels.includes('父女'))m={...m,field:'relationPair'};
       }
       if (!m) {
         dropped.push('[没匹配] ' + parts.join(' / ') + ' | ' + (el.tagName || '') + (el.readOnly ? ' readonly' : ''));
@@ -2548,7 +2563,7 @@
             if (type!=='family') return norm(r[anchorField]) && savedTexts[j].includes(norm(r[anchorField]));
             const cells=[...f.querySelectorAll('.el-form-item')];
             const textFor=label=>{const cell=cells.find(c=>label.test(norm(txt(c.querySelector('.el-form-item__label')))));return cell ? norm(txt(cell.querySelector('.el-form-item__content'))) : '';};
-            return textFor(/^(姓名|成员姓名|家庭成员姓名)$/)===norm(r.name) && textFor(/^(与本人关系|关系|称谓)$/)===norm(r.relation);
+            return textFor(/^(姓名|成员姓名|家庭成员姓名)$/)===norm(r.name) && [norm(r.relation),norm(familyRelationPair(r.relation,profile.basic?.gender))].filter(Boolean).includes(textFor(/^(与本人关系|关系|称谓)$/));
           }));
           if (idx < 0) idx = records.length; // all records exist: leave this new form empty
           used.add(idx); assigned.set(type,used);
