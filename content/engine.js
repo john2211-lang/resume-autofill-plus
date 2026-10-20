@@ -10,6 +10,9 @@
 
   const isPhoenix = () => /(^|\.)zhiye\.com$/i.test(location.hostname) && !!document.querySelector(".form-item--phoenix");
 
+  const is51job = () => /(^|\.)51job\.com$/i.test(location.hostname) && !!document.querySelector('#container input[cname],#container textarea[cname],#container select[cname]');
+  function job51Section() { return txt(document.querySelector('#container h1') || document.querySelector('h1')); }
+
   function phoenixSection(el) {
     const form=el.closest(".form[name]");
     if(!form || !form.id) return "";
@@ -66,6 +69,7 @@
   }
 
   function labelParts(el) {
+    if (is51job() && el.hasAttribute('cname')) return [el.getAttribute('cname') || txt(el.closest('dl')?.querySelector('dt'))];
     if (isPhoenix()) {
       const item=el.closest(".form-item--phoenix");
       const label=item && item.querySelector(".form-item__text");
@@ -216,6 +220,7 @@
   /* 只认「控件前面的标题」：h1-h6 / legend / class 含 title、head，
      或短文本且以板块词开头。取不到就返回空，宁可没有上下文也不要串行。 */
   function sectionOf(el) {
+    if (is51job()) return job51Section();
     if(isPhoenix()) {const section=phoenixSection(el);if(section)return section;} 
     if (isHotjob()) {
       const cell=el.closest(".form-cell");
@@ -558,6 +563,9 @@
       if (field === 'supervisor') return rec.supervisor || counselor || '';
       if (field === 'supervisorRelation' || field === 'supervisorTitle') return rec[field] || (counselor ? '辅导员' : '');
     }
+    if (field === 'supervisorContact') return [rec.supervisor || rec.supervisorName, rec.supervisorPhone].filter(Boolean).join(' ');
+    if (field === 'departmentPosition') return [rec.department, rec.position].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(' / ');
+    if (field === 'workAchievements') return [valueFor(profile,type,'content',idx), rec.achievement].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join('\n');
     // 组合字段
     if (field === 'orgRole') return [rec.org, rec.role].filter(Boolean).join('｜');
     if (field === 'nameRole') return [rec.name, rec.role].filter(Boolean).join('｜');
@@ -1980,6 +1988,14 @@
 
   /* 日期 / 月份 / 年份选择器：能直接写值就写，写不进去就点开面板逐级点选 */
   async function fillDatePicker(el, value, label) {
+    if (is51job() && el.matches('input[cname][editstyle="3"]')) {
+      // My97 onfocus opens a page-level iframe. These ASP.NET fields submit their
+      // native value; never focus, press Enter or click a global confirmation.
+      const date=dateFor(el,value);
+      if(!date) return false;
+      setNativeValue(el,date);
+      return el.value===date;
+    }
     if(isPhoenix() && el.closest(".phoenix-select")) return fillPhoenixDate(el,value,label);
     const gran = granularityOf(el);
     const text = dateFor(el, value, gran);
@@ -2231,6 +2247,16 @@
       }
       const section = item.sec || guessSec(item);
       let m = matchParts(parts, section);
+      if(is51job()) {
+        const label=norm(parts[0]);
+        if (/工作|实习/.test(section)) {
+          const fields={'开始时间':'start','结束时间':'end','工作单位':'company','部门/岗位':'departmentPosition','主要工作内容及业绩成绩':'workAchievements','证明人及联系电话':'supervisorContact'};
+          m=fields[label]?{type:'intern',field:fields[label],part:parts[0]}:null;
+        } else if (/家庭|亲属/.test(section)) {
+          const fields={'姓名':'name','与本人关系':'relation','工作单位':'company','职务':'title','联系电话':'phone'};
+          m=fields[label]?{type:'family',field:fields[label],part:parts[0]}:null;
+        } else if (/证明人/.test(label)) m=null;
+      }
       if(isPhoenix()) {
         const label=norm(parts[0]);
         const maps={
@@ -2512,6 +2538,12 @@
       }
     }
     buildEntries.dropped = dropped; // 面板「填写记录」会展示
+    if(is51job()) {
+      for(const e of entries) {
+        const suffix=e.el.id.match(/^cc_.+_\d+_(\d+)$/);
+        e.idx=TT.LISTS[e.type] && suffix ? Math.max(0,Number(suffix[1])-1) : 0;
+      }
+    }
     return entries;
   }
 
@@ -2614,10 +2646,10 @@
     const started = performance.now();
     const root = opts.root || document;
     const region = opts.rect || null;
-    const full = mode === 'enhanced' || mode === 'region' || isZhaopin() || isHotjob() || isPhoenix();
+    const full = mode === 'enhanced' || mode === 'region' || isZhaopin() || isHotjob() || isPhoenix() || is51job();
 
     let entries = buildEntries(root, profile, mode);
-    if (full && opts.expand !== false && !isZhaopin() && !isHotjob() && !isPhoenix()) {
+    if (full && opts.expand !== false && !isZhaopin() && !isHotjob() && !isPhoenix() && !is51job()) {
       await expandRecords(profile, region);
       entries = buildEntries(root, profile, mode);
     }
@@ -2668,6 +2700,16 @@
       const label = e.label || e.field;
       if (isZhaopin() && !isSuggestInput(e.el) && 'value' in e.el && aliasSet(value).includes(norm(e.el.value))) continue;
 
+      if(is51job() && e.kind==='text' && e.el.matches('input[cname],textarea[cname]') && !e.el.readOnly) {
+        const before=e.el.value;
+        if(before===value) continue;
+        setNativeValue(e.el,value);
+        if(e.el.value===value) {
+          undoStack.push({el:e.el,kind:'text',before});
+          log.push({_target:e.el,label,value});filled++;
+        } else skipped.push({label,reason:'文本未保留，请手动核对'});
+        continue;
+      }
       if(e.kind==='phoenixRadio') {
         const hit=[...e.el.querySelectorAll('.phoenix-radio')].find(n=>aliasSet(value).includes(norm(txt(n))));
         if(hit) {realClick(hit);log.push({_target:e.el,label,value});filled++;}
