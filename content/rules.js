@@ -202,7 +202,7 @@
     { re: /英文名|英文姓名|englishname|拼音姓名|姓名拼音/, type: 'basic', field: 'englishName' },
     { re: /^性别$|gender|^sex$/, type: 'basic', field: 'gender' },
     { re: /出生(日期|年月|时间)|生日|birth/, type: 'basic', field: 'birth' },
-    { re: /年龄|age/, type: 'basic', field: 'age' },
+    { re: /年龄|(?:^|[.\[\]_-])age(?:$|[.\[\]_-])/, type: 'basic', field: 'age' },
     { re: /民族|nation/, type: 'basic', field: 'nation' },
     { re: /政治面貌|党派|party/, type: 'basic', field: 'politics' },
     { re: /(入党|入团|政治面貌).*(时间|日期)/, type: 'basic', field: 'politicsDate' },

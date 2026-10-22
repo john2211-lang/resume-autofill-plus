@@ -15,6 +15,7 @@
   }
   async function runTask(task) {
     if(activeRun)throw new Error('上次填写尚未结束');
+    if(TT.engine)TT.engine.lastProgress=null;
     const run={stopped:false,url:location.href,waiters:new Set()};activeRun=run;
     const limit=setTimeout(stop,120000);
     const navigate=event=>{
@@ -92,6 +93,79 @@
     else if(!checkbox)realClick(hit);
     await wait(180);pressKey(el,'Escape');el.blur();await wait(160);
     return match(universeShown(el));
+  }
+
+  const isFeishu = () => /(^|\.)jobs\.feishu\.cn$/i.test(location.hostname) && !!document.querySelector('.atsx-form-item');
+  const feishuSchoolConfirmed=new WeakMap();
+  function feishuEntries(root) {
+    const out=[];
+    const base={name:'name',email:'email',age:'age',gender:'gender'};
+    const maps={education:{school:'school',degree:'education',fieldOfStudy:'major',education_type:'studyForm'},internship:{company:'company',title:'position',desc:'content'},project:{name:'name',role:'role',desc:'content',link:'link'},language:{language:'language',proficiency:'languageLevel'}};
+    const types={education:'edu',internship:'intern',project:'project',language:'extra'};
+    for(const item of root.querySelectorAll('.atsx-form-item')) {
+      if(concealed(item)||item.closest('.resumeEditForm-hiddenField'))continue;
+      const label=txt(item.querySelector('.atsx-form-item-label label,.atsx-form-item-label'));
+      for(const el of item.querySelectorAll('input[id],textarea[id],.atsx-date-picker-period-month-label')) {
+        if(el.closest('.atsx-form-item')!==item || el.disabled)continue;
+        let type,field,idx=0,kind='text',shownLabel=label;
+        const date=el.matches('.atsx-date-picker-period-month-label');
+        const id=date?el.closest('.atsx-date-picker').getAttribute('data-cy'):el.id;
+        const m=String(id || '').match(/^(education|internship|project|language)\[(\d+)\]\.([\w_]+)/);
+        if(m){type=types[m[1]];idx=Number(m[2]);field=date?(/End$/.test(el.getAttribute('data-cy'))?'end':'start'):maps[m[1]][m[3]];if(date){kind='fsDate';shownLabel=field==='start'?'开始时间':'结束时间';}}
+        else if(base[id]){type='basic';field=base[id];}
+        else if(/^basic_info\./.test(id || '') && /外语水平|英语水平/.test(label)){type='extra';field='englishSummary';}
+        if(!field)continue;
+        const select=el.closest('.atsx-select');
+        const target=select || el;
+        if(out.some(e=>e.el===target))continue;
+        if(select)kind='fsPicker';
+        out.push({el:target,type,field,idx,occ:idx,kind,fs:true,label:shownLabel.slice(0,80),section:type==='edu'?'教育经历':type==='intern'?'实习经历':type==='project'?'项目经历':m?.[1]==='language'?'语言能力':'基本信息',parts:[shownLabel]});
+      }
+    }
+    return out;
+  }
+  function feishuShown(e) {
+    if(e.kind==='fsDate')return txt(e.el).replace(/\s/g,'');
+    if(e.kind==='fsPicker')return txt(e.el.querySelector('.atsx-select-selection-selected-value'));
+    return e.el.value || '';
+  }
+  function feishuSatisfied(e,value) {
+    if(e.field==='school')return feishuSchoolConfirmed.get(e.el)===String(value) && e.el.querySelector('input')?.value===String(value);
+    const shown=feishuShown(e);
+    if(e.kind==='fsDate'){const digits=digitsOf(shown);return digits.length===6 && digitsOf(value).startsWith(digits);}
+    return e.kind==='fsPicker'?universeAliases(e,value).includes(norm(shown)):shown===String(value);
+  }
+  async function fillFeishu(e,value) {
+    checkRun();const el=e.el,v=String(value);
+    if(feishuSatisfied(e,value))return true;
+    if(e.kind==='fsDate') {
+      const m=v.match(/^(\d{4})[-/.](\d{1,2})/);if(!m)return false;
+      const cy=el.getAttribute('data-cy')+'Dropdown';
+      realClick(el);await wait(140);
+      const panel=()=>[...document.querySelectorAll('.atsx-date-picker-period-month-panel')].find(n=>n.getAttribute('data-cy')===cy && !concealed(n));
+      for(const part of [m[1],String(m[2]).padStart(2,'0')]) {
+        let hit;
+        for(let i=0;i<15;i++){const p=panel();hit=p && [...p.querySelectorAll('.atsx-date-picker-period-month-panel-list-item')].find(n=>n.getAttribute('data-cy')===part);if(hit)break;await wait(80);}
+        if(!hit)return false;
+        realClick(hit);await wait(100);
+      }
+      const hidden=el.closest('.atsx-date-picker').querySelector('input');if(hidden){pressKey(hidden,'Escape');hidden.blur();}await wait(160);
+      return feishuSatisfied(e,value);
+    }
+    if(e.kind==='fsPicker') {
+      const trigger=el.querySelector('.atsx-select-selection'),input=el.querySelector('input');if(!trigger)return false;
+      realClick(trigger);await wait(140);
+      const menu=()=>{const owned=trigger.getAttribute('aria-controls');const node=owned && document.getElementById(owned);return node && !node.closest('.atsx-select-dropdown-hidden') && !concealed(node)?node:null;};
+      if(el.classList.contains('atsx-select-combobox') && input)setNativeValue(input,v);
+      let hit;
+      for(let i=0;i<30;i++){const list=menu();hit=list && [...list.querySelectorAll('.atsx-select-dropdown-menu-item')].find(n=>!n.matches('.atsx-select-dropdown-menu-item-disabled,[aria-disabled="true"]') && universeAliases(e,v).includes(norm(txt(n))));if(hit)break;await wait(90);}
+      if(!hit){if(input)pressKey(input,'Escape');return false;}
+      realClick(hit);await wait(200);
+      if(e.field==='school' && input?.value===v)feishuSchoolConfirmed.set(el,v);
+      return feishuSatisfied(e,value);
+    }
+    setNativeValue(el,v);fire(el,'blur');fire(el,'focusout');el.blur();await wait(180);
+    return feishuSatisfied(e,value);
   }
 
   const SKIP_INPUT_TYPES = /^(hidden|submit|button|reset|image|file|password|search)$/i;
@@ -175,7 +249,7 @@
     }
     // Resolve the nearest field's own heading before walking siblings. A two-column
     // grid can otherwise expose the previous field's selected value as a label.
-    if (isZhaopin()) {
+    if (isZhaopin() || isModern51()) {
       const item = el.closest('.el-form-item');
       const ownLabel = item && item.querySelector('.el-form-item__label');
       if (ownLabel && txt(ownLabel)) return [txt(ownLabel)];
@@ -361,7 +435,7 @@
       if(el.matches('.phoenix-select') && (!isPhoenix() || el.querySelector('input,textarea')))continue;
       if(isPhoenix() && (concealed(el) || !el.closest('.form-item--phoenix') || el.closest('.constant-main-selector-container,.phoenix-date-picker'))) continue;
       if (isHotjob() && (concealed(el) || el.closest('.ant-modal,.ant-select-dropdown') || el.matches('.ant-select-search__field'))) continue;
-      if (isZhaopin() && el.matches('[role="combobox"]') && el.querySelector('input,textarea,select')) continue;
+      if ((isZhaopin() || isModern51()) && el.matches('[role="combobox"]') && el.querySelector('input,textarea,select')) continue;
       if (tag === 'input') {
         const t = (el.type || 'text').toLowerCase();
         if (SKIP_INPUT_TYPES.test(t)) continue;
@@ -647,6 +721,8 @@
     if (type === 'self') return self[field] == null ? '' : String(self[field]);
     if (type === 'extra') {
       const ex = profile.extras || {};
+      if(isFeishu() && idx>0 && /^(language|languageLevel)$/.test(field))return '';
+      if(field==='englishSummary')return [ex.englishLevel,ex.englishScore?ex.englishScore+'分':''].filter(Boolean).join('，');
       if (field === 'language') return ex.language || (ex.englishLevel || ex.englishScore ? '英语' : '');
       if (field === 'languageLevel') return ex.languageLevel || '';
       if (field === 'englishLevel') return ex.englishLevel || '';
@@ -656,7 +732,7 @@
     }
     const list = profile[TT.LISTS[type]] || [];
     // 页面上经历块比简历多时，多出来的块留空，别回绕去填第 1 条
-    if ((isZhaopin() || isHotjob() || isPhoenix()) && idx >= list.length) return '';
+    if ((isZhaopin() || isHotjob() || isPhoenix() || isFeishu()) && idx >= list.length) return '';
     const rec = list[idx] || {};
     if (type === 'family') {
       if(field==='relationPair')return familyRelationPair(rec.relation,basic.gender);
@@ -667,6 +743,8 @@
       const gpa=String(rec.gpa || '').match(/(\d+(?:\.\d+)?)\s*[/／]\s*(\d+(?:\.\d+)?)/);
       if(field==='gpaMax') return rec.gpaMax || (gpa ? gpa[2] : '');
       if(field==='gpaScore') return rec.gpaScore || (gpa ? gpa[1] : (/^\d+(?:\.\d+)?$/.test(String(rec.gpa||''))?rec.gpa:''));
+      if(field==='majorOther')return rec.major || '';
+      if(field==='schoolOther')return rec.school || '';
       if(field==='fullTime') return rec.studyForm ? (/全日制/.test(rec.studyForm) && !/非全日制/.test(rec.studyForm) ? '是':'否') : '';
       if(field==='majorLevel1') return rec.majorLevel1 || (/经济学/.test(rec.major||'') ? '经济学':'');
       if(field==='majorLevel2') return rec.majorLevel2 || (rec.major==='经济学' && /本科/.test(rec.education||'') ? '经济学类':'');
@@ -1409,7 +1487,7 @@
       }
       pressKey(el,'Escape'); return {ok:false,debug};
     }
-    if (autocomplete && !el.readOnly) {
+    if (autocomplete && el.tagName==='INPUT' && !el.readOnly) {
       if (confirmedZhaopin.get(el) === v && norm(el.value) === norm(v)) return {ok:true,debug};
       el.focus();
       const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;
@@ -2324,6 +2402,7 @@
   /* 计算某个字段属于第几条记录 */
   function buildEntries(root, profile, modes) {
     if(isUniverse())return universeEntries(root);
+    if(isFeishu())return feishuEntries(root);
     const { controls, radioGroups } = collectControls(root);
     const entries = [];
     const seenFieldCount = {};
@@ -2407,6 +2486,11 @@
       }
       const section = item.sec || guessSec(item);
       let m = matchParts(parts, section);
+      if(isModern51() && /教育/.test(section)) {
+        const name=norm(parts[0]).replace(/^(本科|硕士|博士|研究生)/,'');
+        const fields={'学历层次':'education','入学时间':'start','毕业时间':'end','毕业学校':'school','专业':'major','学习成绩排名':'majorRank','担任职务':'campusPosition','主修课程':'courses','其他专业':'majorOther','其他学校':'schoolOther'};
+        if(fields[name])m={type:'edu',field:fields[name],part:parts[0]};
+      }
       if(isModern51() && /家庭|家属|亲属/.test(section)) {
         const fields={'称谓':'relation','与本人关系':'relation','姓名':'name','出生年月':'birth','出生日期':'birth','政治面貌':'politics','工作单位及职务':'occupation','工作单位、职位或就读学校':'occupation','工作单位':'company','职务':'title','联系电话':'phone'};
         m=fields[norm(parts[0])]?{type:'family',field:fields[norm(parts[0])],part:parts[0]}:null;
@@ -2720,6 +2804,14 @@
     }
     buildEntries.dropped = dropped; // 面板「填写记录」会展示
     if(isModern51()) {
+      // Fixed highest-level and bachelor sections are not repeating record counts.
+      const education=profile.educations || [];
+      for(const e of entries.filter(n=>n.type==='edu' && /教育/.test(n.section))) {
+        const label=norm(e.parts[0]);
+        const level=/^本科/.test(label)?/本科/:/^硕士/.test(label)?/硕士/:/^博士/.test(label)?/博士/:null;
+        if(level){const i=education.findIndex(r=>level.test(r.education || ''));e.idx=i<0?education.length:i;}
+        else e.idx=0;
+      }
       const used=new Set();
       const forms=[...new Set(entries.filter(e=>e.type==='family').map(e=>e.el.closest('form.el-form')).filter(Boolean))];
       for(const form of forms) {
@@ -2842,10 +2934,10 @@
     const started = performance.now();
     const root = opts.root || document;
     const region = opts.rect || null;
-    const full = isUniverse() || mode === 'enhanced' || mode === 'region' || isZhaopin() || isHotjob() || isPhoenix() || is51job() || isModern51();
+    const full = isFeishu() || isUniverse() || mode === 'enhanced' || mode === 'region' || isZhaopin() || isHotjob() || isPhoenix() || is51job() || isModern51();
 
     let entries = buildEntries(root, profile, mode);
-    if (full && !isUniverse() && opts.expand !== false && !isZhaopin() && !isHotjob() && !isPhoenix() && !is51job() && !isModern51()) {
+    if (full && !isFeishu() && !isUniverse() && opts.expand !== false && !isZhaopin() && !isHotjob() && !isPhoenix() && !is51job() && !isModern51()) {
       await expandRecords(profile, region);
       entries = buildEntries(root, profile, mode);
     }
@@ -2863,6 +2955,7 @@
     const noData = [];
     const undoStack = [];
     let filled = 0;
+    TT.engine.lastProgress={filled:0,log,skipped,noData,undo:()=>0};
     const recognized = entries.map(
       (e) => e.type + '.' + e.field + ' ← ' + e.label + ' [' + (e.section || '') + '] ' + e.kind + ' #' + (e.idx + 1)
     );
@@ -2872,17 +2965,33 @@
       entries.sort((a,b)=>(order[a.field] ?? 5)-(order[b.field] ?? 5));
     }
     for (let e of entries) {
+      TT.engine.lastProgress.filled=filled;TT.engine.lastProgress.current=e.label;
       checkRun();
-      if ((isZhaopin() || isPhoenix() || isUniverse()) && !e.el.isConnected) {
+      if ((isZhaopin() || isPhoenix() || isUniverse() || isFeishu()) && !e.el.isConnected) {
         // Degree/education selects rebuild downstream inputs. Resolve the live control.
         const current=buildEntries(root,profile,mode).find(n=>n.type===e.type && n.field===e.field && n.idx===e.idx && (!region || inRegion(n.el,region)));
         if (current) e=current;
       }
       if (!e.el.isConnected || (isZhaopin() && concealed(e.el))) continue;
       if (scopeTypes && !scopeTypes.has(e.type) && !(e.type === 'edu' && e.idx === 0)) continue;
+      if(isModern51() && /^(majorOther|schoolOther)$/.test(e.field)) {
+        const main=entries.find(n=>n.type==='edu' && n.field===e.field.replace('Other','') && n.idx===e.idx);
+        if(!main || !/其他/.test(main.el.value || ''))continue;
+      }
       let value = valueFor(profile, e.type, e.field, e.idx);
       if (value === '' || value == null) {
         noData.push((e.label || e.field) + '（' + e.type + '.' + e.field + ' 第' + (e.idx + 1) + '条）');
+        continue;
+      }
+      if(isModern51() && e.type==='edu' && e.field==='majorRank' && /^前?\d+(?:\.\d+)?%$/.test(String(value))) {
+        const rank=Number(String(value).match(/\d+(?:\.\d+)?/)[0]);
+        const options=[...e.el.closest('.el-form-item').querySelectorAll('.el-select-dropdown__item')].map(n=>txt(n)).filter(t=>/^前\d+(?:\.\d+)?%$/.test(t)).map(t=>({text:t,n:Number(t.match(/\d+(?:\.\d+)?/)[0])})).filter(n=>n.n>=rank).sort((a,b)=>a.n-b.n);
+        if(options.length)value=options[0].text;
+      }
+      if(e.fs) {
+        const before=e.el.value;
+        if(await fillFeishu(e,value)){log.push({_target:e.el,label:e.label,value:String(value)});filled++;if(e.kind==='text')undoStack.push({el:e.el,kind:'text',before});}
+        else skipped.push({label:e.label,value,el:e.el,reason:e.kind==='fsDate'?'月份选择后未确认，请手动核对':'未保留已确认的字段值，请重试或手动选择'});
         continue;
       }
       if(e.ud) {
@@ -3120,6 +3229,10 @@
         if(!ok){skipped.push({label:old.label,value:v,el:e?.el,reason:'网页更新后未保留预期值'});log.splice(i,1);filled--;}
       }
     }
+    if(isFeishu()) {
+      await wait(250);const live=feishuEntries(root);
+      for(let i=log.length-1;i>=0;i--){const old=entries.find(e=>e.el===log[i]._target);if(!old)continue;const current=live.find(e=>e.type===old.type && e.field===old.field && e.idx===old.idx);const value=valueFor(profile,old.type,old.field,old.idx);if(!current || !feishuSatisfied(current,value)){skipped.push({label:old.label,value,el:current?.el,reason:'网页更新后未保留预期值'});log.splice(i,1);filled--;}}
+    }
     for (const item of log) delete item._target;
     const ms = Math.round(performance.now() - started);
     const undo = () => {
@@ -3167,6 +3280,7 @@
   async function retryPicker(el, value, label, profile) {
     if (!el || !el.isConnected) return false;
     if(isUniverse()){const e=universeEntries(document).find(n=>n.el===el);return e?fillUniverse(e,value):false;}
+    if(isFeishu()){const e=feishuEntries(document).find(n=>n.el===el);return e?fillFeishu(e,value):false;}
     // 日期 / 月份控件走另一条路，别当普通下拉重试
     if (isDatePickerish(el, label)) {
       if (await fillDatePicker(el, value, label || '')) return true;

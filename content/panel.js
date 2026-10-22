@@ -198,7 +198,7 @@
     const card = h('div', { class: 'card' });
     const head = h('div', { class: 'head' });
     head.appendChild(h('div', { class: 'dot' }));
-    head.appendChild(h('div', { class: 'title', text: '网申速填 1.1.16' }));
+    head.appendChild(h('div', { class: 'title', text: '网申速填 1.1.18' }));
     const minBtn = h('button', { class: 'mini', title: '收起', text: '—' });
     minBtn.addEventListener('click', () => {
       state.open = false;
@@ -400,6 +400,7 @@
       }
       const last = state.last;
       if (last) {
+        if(last.error)lines.push('【本次中断】'+last.error,last.stack || '');
         lines.push('', '【本次填写】填入 ' + last.filled + ' 项，未填 ' + ((last.skipped || []).length) + ' 项');
         lines.push('【缺少资料】' + ((last.noData || []).join('；') || '无'));
         for (const s of last.skipped || []) {
@@ -437,6 +438,7 @@
   }
 
   async function performFill(mode, rect, force) {
+    state.last=null;
     await loadProfile();
     if(state.stopRequested)return;
     if (!state.profile) {
@@ -483,6 +485,8 @@
     } catch (e) {
       clearInterval(timer);
       toast(e.name==='AbortError'?'已停止填写，保留已填内容':'填写出错：' + (e && e.message ? e.message : e), 4000);
+      const partial=TT.engine.lastProgress || {};
+      state.last={filled:partial.filled || 0,log:partial.log || [],skipped:partial.skipped || [],noData:partial.noData || [],mode,time:new Date().toLocaleString(),error:(partial.current?'步骤：'+partial.current+'；':'')+(e.message || String(e)),stack:String(e.stack || '').split('\n').slice(0,5).join('\n')};
       if(e.name!=='AbortError')console.error('[网申速填]', e);
       return null;
     } finally {cleanup();if(state.cleanupProgress===cleanup)state.cleanupProgress=null;}
